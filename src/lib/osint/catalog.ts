@@ -61,6 +61,19 @@ export type ConnectorCatalogItem = {
   notes?: string;
 };
 
+export type HeavyToolGuide = {
+  id: string;
+  name: string;
+  configured: boolean;
+  tokenConfigured: boolean;
+  description: string;
+  queryKinds: QueryKind[];
+  urlEnv: string;
+  tokenEnv: string;
+  connectionStatus: string;
+  usageHint: string;
+};
+
 const SEC_USER_AGENT =
   process.env.SEC_USER_AGENT || "Privat-OSINT/1.0 research@privat-osint.local";
 
@@ -129,6 +142,40 @@ const bridgeConfigs: BridgeConfig[] = [
     description: "Self-hosted Amass worker for deeper infrastructure and graph discovery.",
   },
 ];
+
+export function getHeavyToolGuides(locale: Locale): HeavyToolGuide[] {
+  return bridgeConfigs.map((config) => {
+    const configured = Boolean(process.env[config.urlEnv]);
+    const tokenConfigured = Boolean(process.env[config.tokenEnv]);
+
+    return {
+      id: config.id,
+      name: config.name.replace(" Bridge", ""),
+      configured,
+      tokenConfigured,
+      description: config.description,
+      queryKinds: config.queryKinds,
+      urlEnv: config.urlEnv,
+      tokenEnv: config.tokenEnv,
+      connectionStatus:
+        locale === "ru"
+          ? configured
+            ? "Worker уже подключён к сайту"
+            : "Нужен отдельный worker-хост"
+          : configured
+            ? "Worker is already wired into the site"
+            : "A separate worker host is still required",
+      usageHint:
+        locale === "ru"
+          ? configured
+            ? "После подключения этот инструмент автоматически подмешивается в общую выдачу по поддерживаемым типам запросов."
+            : "Поднимите workers/heavy-osint, задайте URL и токен в основном приложении, и результаты начнут появляться прямо в общей выдаче."
+          : configured
+            ? "Once configured, this tool feeds results back into unified search automatically for supported query types."
+            : "Deploy workers/heavy-osint, set the bridge URL and token in the main app, and the results will flow into unified search automatically.",
+    };
+  });
+}
 
 export const connectorCatalog: ConnectorCatalogItem[] = [
   {
@@ -498,7 +545,7 @@ function toTitleCase(text: string) {
   return text.replace(/(^\w|\s\w)/g, (match) => match.toUpperCase());
 }
 
-function humanizeQueryKind(kind: QueryKind, locale: Locale) {
+export function humanizeQueryKind(kind: QueryKind, locale: Locale) {
   if (locale === "ru") {
     return {
       company: "Компания",
@@ -513,6 +560,26 @@ function humanizeQueryKind(kind: QueryKind, locale: Locale) {
   }
 
   return toTitleCase(kind);
+}
+
+export function humanizeConnectorCategory(category: string, locale: Locale) {
+  if (locale === "ru") {
+    return {
+      "Phone OSINT": "OSINT по телефону",
+      Identity: "Идентичность",
+      Registry: "Реестры",
+      "Code Intelligence": "Code Intelligence",
+      Archives: "Архивы",
+      "Technical Footprint": "Технический след",
+      "Entity Intelligence": "Entity Intelligence",
+      "Company Intelligence": "Информация о компаниях",
+      Compliance: "Комплаенс",
+      "OSINT Automation": "OSINT-автоматизация",
+      Defensive: "Защитный анализ",
+    }[category] || category;
+  }
+
+  return category;
 }
 
 function extractMatch(html: string, pattern: RegExp) {
@@ -533,6 +600,24 @@ function canonicalizeUsername(query: string) {
   return query.replace(/^@/, "").trim();
 }
 
+function slugToken(token: string) {
+  return token
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+type PersonIdentity = {
+  normalizedName: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  initials: string;
+  usernameVariants: string[];
+  emailLocalParts: string[];
+};
+
 function looksLikePersonName(query: string) {
   const tokens = query
     .trim()
@@ -549,6 +634,69 @@ function looksLikePersonName(query: string) {
   }
 
   return tokens.every((token) => /^[\p{L}][\p{L}'-]+$/u.test(token));
+}
+
+function buildPersonIdentity(query: string): PersonIdentity | null {
+  if (!looksLikePersonName(query)) {
+    return null;
+  }
+
+  const tokens = query
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/(^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$)/gu, ""))
+    .filter(Boolean);
+
+  if (tokens.length < 2) {
+    return null;
+  }
+
+  const normalizedTokens = tokens.map(slugToken).filter(Boolean);
+  const firstName = normalizedTokens[0];
+  const lastName = normalizedTokens[normalizedTokens.length - 1];
+  const middleName =
+    normalizedTokens.length === 3 ? normalizedTokens[1] : undefined;
+
+  if (!firstName || !lastName) {
+    return null;
+  }
+
+  const firstInitial = firstName[0] || "";
+  const lastInitial = lastName[0] || "";
+  const middleInitial = middleName?.[0] || "";
+
+  const usernameVariants = uniqueValues([
+    `${firstName}.${lastName}`,
+    `${firstName}_${lastName}`,
+    `${firstName}-${lastName}`,
+    `${firstName}${lastName}`,
+    `${firstInitial}${lastName}`,
+    `${firstName}${lastInitial}`,
+    middleName ? `${firstName}.${middleInitial}.${lastName}` : "",
+    middleName ? `${firstName}${middleInitial}${lastName}` : "",
+    `${lastName}.${firstName}`,
+    `${lastName}${firstName}`,
+  ]).slice(0, 8);
+
+  const emailLocalParts = uniqueValues([
+    `${firstName}.${lastName}`,
+    `${firstName}_${lastName}`,
+    `${firstInitial}${lastName}`,
+    middleName ? `${firstName}.${middleInitial}.${lastName}` : "",
+  ]).slice(0, 6);
+
+  return {
+    normalizedName: tokens.join(" "),
+    firstName: tokens[0],
+    middleName: tokens.length === 3 ? tokens[1] : undefined,
+    lastName: tokens[tokens.length - 1],
+    initials: [firstInitial, middleInitial, lastInitial]
+      .filter(Boolean)
+      .join("")
+      .toUpperCase(),
+    usernameVariants,
+    emailLocalParts,
+  };
 }
 
 function safeDomainFromQuery(query: string) {
@@ -594,6 +742,154 @@ function isFreeMailDomain(domain: string) {
     "gmx.com",
     "gmx.de",
   ]).has(domain);
+}
+
+async function searchPersonBreakdown(
+  query: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const identity = buildPersonIdentity(query);
+
+  if (!identity) {
+    return [];
+  }
+
+  return [
+    {
+      id: `person-breakdown-${identity.usernameVariants[0] || slugToken(query)}`,
+      source: locale === "ru" ? "Разбор человека" : "Person Breakdown",
+      type: "name-analysis",
+      title: identity.normalizedName,
+      subtitle:
+        locale === "ru"
+          ? "Имя разложено на поисковые pivots"
+          : "Name decomposed into pivot-ready search variants",
+      description:
+        locale === "ru"
+          ? "Сначала проверяйте точные entity-совпадения, затем переходите к username-вариантам, GitHub-handle и email local-part гипотезам."
+          : "Start with exact entity matches, then pivot into username variants, GitHub handles, and likely email local-parts.",
+      tags: ["person", "name-analysis", "pivot-plan"],
+      details: [
+        {
+          label: locale === "ru" ? "Имя" : "First name",
+          value: identity.firstName,
+        },
+        ...(identity.middleName
+          ? [
+              {
+                label: locale === "ru" ? "Среднее имя" : "Middle name",
+                value: identity.middleName,
+              },
+            ]
+          : []),
+        {
+          label: locale === "ru" ? "Фамилия" : "Last name",
+          value: identity.lastName,
+        },
+        {
+          label: locale === "ru" ? "Инициалы" : "Initials",
+          value: identity.initials,
+        },
+        {
+          label: locale === "ru" ? "Username-варианты" : "Username variants",
+          value: identity.usernameVariants.join(", "),
+        },
+        {
+          label: locale === "ru" ? "Email local-part гипотезы" : "Email local-part guesses",
+          value: identity.emailLocalParts.join(", "),
+        },
+      ],
+    },
+  ];
+}
+
+async function searchPersonVariantFootprints(
+  query: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const identity = buildPersonIdentity(query);
+
+  if (!identity) {
+    return [];
+  }
+
+  const candidates = identity.usernameVariants.slice(0, 2);
+  const settled = await Promise.allSettled(
+    candidates.map(async (candidate) => {
+      const items = await searchUsernameFootprint(candidate, locale);
+      return items.map((item, index) => ({
+        ...item,
+        id: `person-footprint-${candidate}-${index}`,
+        details: [
+          {
+            label: locale === "ru" ? "Username-кандидат" : "Username candidate",
+            value: candidate,
+          },
+          ...(item.details || []),
+        ],
+      }));
+    }),
+  );
+
+  const deduped = new Map<string, SearchItem>();
+  for (const result of settled) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const item of result.value) {
+      const key = item.url || `${item.title}-${item.subtitle || ""}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, item);
+      }
+    }
+  }
+
+  return Array.from(deduped.values()).slice(0, 16);
+}
+
+async function searchPersonGithubCandidates(
+  query: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const identity = buildPersonIdentity(query);
+
+  if (!identity) {
+    return [];
+  }
+
+  const settled = await Promise.allSettled(
+    identity.usernameVariants.slice(0, 4).map(async (candidate) => {
+      const items = await searchGithubExactUser(candidate, locale);
+      return items.map((item, index) => ({
+        ...item,
+        id: `person-github-${candidate}-${index}`,
+        details: [
+          {
+            label: locale === "ru" ? "Username-кандидат" : "Username candidate",
+            value: candidate,
+          },
+          ...(item.details || []),
+        ],
+      }));
+    }),
+  );
+
+  const deduped = new Map<string, SearchItem>();
+  for (const result of settled) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const item of result.value) {
+      const key = item.url || `${item.title}-${item.subtitle || ""}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, item);
+      }
+    }
+  }
+
+  return Array.from(deduped.values()).slice(0, 8);
 }
 
 function normalizeBridgeItem(toolName: string, item: SearchItem, index: number): SearchItem {
@@ -1858,7 +2154,10 @@ async function searchUsernameFootprint(
       url: probe.url,
       tags: ["username", "profile", "sherlock-class"],
       details: [
-        { label: "HTTP status", value: String(probe.status) },
+        {
+          label: locale === "ru" ? "HTTP-статус" : "HTTP status",
+          value: String(probe.status),
+        },
         {
           label: dictionary.searchResults.itemLabels.waybackPages,
           value: String(probe.archivedPages || 0),
@@ -1878,7 +2177,7 @@ function recommendedConnectors(kind: QueryKind, locale: Locale) {
     .slice(0, 12)
     .map((connector) => ({
       id: connector.id,
-      source: connector.category,
+      source: humanizeConnectorCategory(connector.category, locale),
       type: connector.status,
       title: connector.name,
       subtitle:
@@ -1891,7 +2190,7 @@ function recommendedConnectors(kind: QueryKind, locale: Locale) {
               : dictionary.sourcesPage.manual,
       description: connector.description,
       url: connector.officialUrl,
-      tags: connector.queryKinds,
+      tags: connector.queryKinds.map((kind) => humanizeQueryKind(kind, locale)),
       details: connector.notes
         ? [{ label: dictionary.searchResults.itemLabels.operatorNote, value: connector.notes }]
         : [],
@@ -1926,6 +2225,8 @@ export async function runUnifiedSearch(
   const dictionary = getDictionary(locale);
   const inferredType = inferQueryKind(query);
   const normalizedQuery = query.trim();
+  const keywordLooksLikeHandle =
+    inferredType === "keyword" && /^(?:@)?[a-z0-9][a-z0-9._-]{2,38}$/i.test(normalizedQuery);
   const sections: SearchSection[] = [];
   const warnings: string[] = [
     dictionary.searchResults.warnings.lawful,
@@ -2164,6 +2465,24 @@ export async function runUnifiedSearch(
   }
 
   if (inferredType === "company" || inferredType === "person" || inferredType === "keyword") {
+    if (inferredType === "person") {
+      tasks.push(
+        (async () => {
+          const items = await searchPersonBreakdown(normalizedQuery, locale);
+          addSection(
+            sections,
+            usedSources,
+            locale === "ru" ? "Разбор человека" : "Person Breakdown",
+            locale === "ru" ? "Разбор человека" : "Person Breakdown",
+            locale === "ru"
+              ? "Имя, инициалы, username-варианты и логика дальнейших pivots."
+              : "Name parsing, initials, username variants, and next-step pivot logic.",
+            items,
+          );
+        })(),
+      );
+    }
+
     tasks.push(
       (async () => {
         const items = await searchWikidataEntities(normalizedQuery, locale);
@@ -2249,6 +2568,16 @@ export async function runUnifiedSearch(
                 ...(await searchGithubExactUser(normalizedQuery, locale)),
                 ...(await searchGithubUsers(canonicalizeUsername(normalizedQuery), locale)),
               ]
+            : inferredType === "person"
+              ? [
+                  ...(await searchPersonGithubCandidates(normalizedQuery, locale)),
+                  ...(await searchGithubUsers(normalizedQuery, locale)),
+                ]
+              : keywordLooksLikeHandle
+                ? [
+                    ...(await searchGithubExactUser(canonicalizeUsername(normalizedQuery), locale)),
+                    ...(await searchGithubUsers(normalizedQuery, locale)),
+                  ]
             : await searchGithubUsers(normalizedQuery, locale);
 
         addSection(
@@ -2314,37 +2643,57 @@ export async function runUnifiedSearch(
     enqueueDomainTasks(domain, "domain");
   }
 
-  if (inferredType === "username") {
+  if (inferredType === "username" || keywordLooksLikeHandle || inferredType === "person") {
     const username = canonicalizeUsername(normalizedQuery);
 
-    tasks.push(
-      (async () => {
-        const items = await searchUsernameFootprint(username, locale);
-        addSection(
-          sections,
-          usedSources,
-          "Username Pivot",
-          dictionary.searchResults.sections.usernameFootprintTitle,
-          dictionary.searchResults.sections.usernameFootprintDescription,
-          items,
-        );
-      })(),
-    );
+    if (inferredType === "person") {
+      tasks.push(
+        (async () => {
+          const items = await searchPersonVariantFootprints(normalizedQuery, locale);
+          addSection(
+            sections,
+            usedSources,
+            locale === "ru" ? "След по username" : "Username Pivot",
+            locale === "ru" ? "Пивоты по имени" : "Person Username Pivots",
+            locale === "ru"
+              ? "Лучшие username-варианты по имени и фамилии, проверенные на публичных платформах."
+              : "Top username variants derived from the person's name and checked across public platforms.",
+            items,
+          );
+        })(),
+      );
+    } else {
+      tasks.push(
+        (async () => {
+          const items = await searchUsernameFootprint(username, locale);
+          addSection(
+            sections,
+            usedSources,
+            "Username Pivot",
+            dictionary.searchResults.sections.usernameFootprintTitle,
+            dictionary.searchResults.sections.usernameFootprintDescription,
+            items,
+          );
+        })(),
+      );
+    }
 
-    tasks.push(
-      (async () => {
-        const section = await buildWaybackSection(
-          normalizedQuery,
-          "wayback-username",
-          dictionary.searchResults.sections.usernameArchiveTitle,
-          locale,
-        );
-        if (section) {
-          usedSources.add("Wayback Machine");
-          sections.push(section);
-        }
-      })(),
-    );
+    if (inferredType === "username" || keywordLooksLikeHandle) {
+      tasks.push(
+        (async () => {
+          const section = await buildWaybackSection(
+            normalizedQuery,
+            "wayback-username",
+            dictionary.searchResults.sections.usernameArchiveTitle,
+            locale,
+          );
+          if (section) {
+            usedSources.add("Wayback Machine");
+            sections.push(section);
+          }
+        })(),
+      );
+    }
   }
 
   for (const config of bridgeConfigs) {

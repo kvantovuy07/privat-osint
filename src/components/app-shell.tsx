@@ -39,6 +39,10 @@ export async function AppShell({
     { href: "/sources", key: "sources", label: dictionary.nav.sources },
     { href: "/dossiers", key: "dossiers", label: dictionary.nav.dossiers },
   ] as const;
+  const currentLabel =
+    current === "admin"
+      ? dictionary.nav.admin
+      : navLinks.find((link) => link.key === current)?.label || current;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(15,185,129,0.18),transparent_30%),linear-gradient(180deg,#030606_0%,#020303_100%)] text-white">
@@ -127,7 +131,7 @@ export async function AppShell({
           <header className="mb-8 flex flex-col gap-4 rounded-[1.75rem] border border-white/10 bg-black/25 px-6 py-5 backdrop-blur md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-emerald-200/70">
-                {current}
+                {currentLabel}
               </p>
               <h2 className="mt-2 text-3xl font-semibold text-white">{title}</h2>
               <p className="mt-2 max-w-3xl text-sm text-zinc-400">{subtitle}</p>

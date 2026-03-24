@@ -1,15 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { useLocale } from "@/components/locale-provider";
 
 export function LanguageSwitcher({
   currentPath,
 }: {
-  currentPath: string;
+  currentPath?: string;
 }) {
   const { locale, dictionary } = useLocale();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const resolvedPath = pathname || currentPath || "/login";
+  const queryString = searchParams?.toString();
+  const redirectTo = queryString ? `${resolvedPath}?${queryString}` : resolvedPath;
 
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2 py-2 text-xs text-zinc-300 backdrop-blur">
@@ -21,7 +27,7 @@ export function LanguageSwitcher({
         return (
           <Link
             key={code}
-            href={`/api/locale?locale=${code}&redirectTo=${encodeURIComponent(currentPath)}`}
+            href={`/api/locale?locale=${code}&redirectTo=${encodeURIComponent(redirectTo)}`}
             className={`rounded-full px-3 py-1.5 font-medium transition ${
               active
                 ? "bg-emerald-400 text-black"

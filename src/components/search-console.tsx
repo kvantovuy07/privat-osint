@@ -13,6 +13,12 @@ const initialSearchState = {
   result: null,
 };
 
+function formatItemType(type: string) {
+  return type
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function SearchStateNotice({
   status,
   message,
@@ -140,7 +146,9 @@ export function SearchConsole() {
               <div className="mt-4 grid gap-3">
                 <input
                   name="title"
-                  defaultValue={`${searchState.result.query} dossier`}
+                  defaultValue={`${searchState.result.query} ${
+                    dictionary.searchConsole.dossierEyebrow.toLowerCase()
+                  }`}
                   className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-emerald-400/50"
                 />
                 <textarea
@@ -182,7 +190,7 @@ export function SearchConsole() {
                           {item.source}
                         </span>
                         <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                          {item.type}
+                          {formatItemType(item.type)}
                         </span>
                       </div>
                       <h4 className="mt-3 text-lg font-medium text-white">{item.title}</h4>

@@ -1,4 +1,9 @@
-import { connectorCatalog } from "@/lib/osint/catalog";
+import {
+  connectorCatalog,
+  getHeavyToolGuides,
+  humanizeConnectorCategory,
+  humanizeQueryKind,
+} from "@/lib/osint/catalog";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
@@ -20,6 +25,7 @@ export default async function SourcesPage() {
       return acc;
     }, {}),
   );
+  const heavyGuides = getHeavyToolGuides(locale);
 
   return (
     <AppShell
@@ -31,14 +37,108 @@ export default async function SourcesPage() {
       pendingRequestsCount={pendingRequestsCount}
     >
       <div className="grid gap-6">
+        <section className="panel grid gap-4">
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
+              {locale === "ru" ? "Heavy OSINT" : "Heavy OSINT"}
+            </p>
+            <h2 className="text-2xl font-semibold text-white">
+              {locale === "ru"
+                ? "Подключение Sherlock, Maigret, SpiderFoot и других глубинных движков"
+                : "Connecting Sherlock, Maigret, SpiderFoot, and other depth engines"}
+            </h2>
+            <p className="max-w-4xl text-sm text-zinc-400">
+              {locale === "ru"
+                ? "Нативные HTTP-источники уже работают прямо в сайте. Тяжёлые OSINT-инструменты лучше держать в отдельном worker-слое, а сайт будет автоматически подтягивать их результаты обратно в общую выдачу."
+                : "Native HTTP sources already run directly inside the site. Heavy OSINT tools work best as a separate worker layer, and the site can automatically pull their results back into unified search."}
+            </p>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {heavyGuides.map((guide) => (
+              <article
+                key={guide.id}
+                className="rounded-2xl border border-white/10 bg-black/25 p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.3em] ${
+                      guide.configured
+                        ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+                        : "border border-amber-300/20 bg-amber-300/10 text-amber-100"
+                    }`}
+                  >
+                    {guide.configured
+                      ? locale === "ru"
+                        ? "подключён"
+                        : "wired"
+                      : locale === "ru"
+                        ? "ожидает worker"
+                        : "needs worker"}
+                  </span>
+                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    {guide.queryKinds.map((kind) => humanizeQueryKind(kind, locale)).join(" • ")}
+                  </span>
+                </div>
+                <h3 className="mt-3 text-lg font-medium text-white">{guide.name}</h3>
+                <p className="mt-3 text-sm text-zinc-300">{guide.description}</p>
+                <p className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-300">
+                  {guide.connectionStatus}
+                </p>
+                <div className="mt-4 grid gap-2 text-sm text-zinc-400">
+                  <p>{guide.usageHint}</p>
+                  <p>
+                    <span className="text-zinc-500">
+                      {locale === "ru" ? "Bridge URL" : "Bridge URL"}:
+                    </span>{" "}
+                    <code>{guide.urlEnv}</code>
+                  </p>
+                  <p>
+                    <span className="text-zinc-500">
+                      {locale === "ru" ? "Bridge token" : "Bridge token"}:
+                    </span>{" "}
+                    <code>{guide.tokenEnv}</code>
+                    {guide.tokenConfigured ? (
+                      <span className="ml-2 text-emerald-200">
+                        {locale === "ru" ? "настроен" : "set"}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
+            <p className="font-medium text-white">
+              {locale === "ru" ? "Как это использовать" : "How to use it"}
+            </p>
+            <div className="mt-3 grid gap-2 text-zinc-400">
+              <p>
+                {locale === "ru"
+                  ? "1. Поднимите worker из папки `workers/heavy-osint` на VPS, Render, Fly.io или Railway."
+                  : "1. Deploy the worker from `workers/heavy-osint` to a VPS, Render, Fly.io, or Railway."}
+              </p>
+              <p>
+                {locale === "ru"
+                  ? "2. На worker-хосте задайте `OSINT_WORKER_TOKEN` и команды для нужных инструментов."
+                  : "2. Set `OSINT_WORKER_TOKEN` and the command paths for the tools you want on the worker host."}
+              </p>
+              <p>
+                {locale === "ru"
+                  ? "3. В основном приложении укажите bridge URL и token env. После этого поиск по username, человеку, компании или домену начнёт автоматически подтягивать тяжёлые результаты."
+                  : "3. Set the bridge URL and token env vars in the main app. After that, searches for usernames, people, companies, or domains will automatically pull heavy-tool results into unified search."}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {grouped.map(([category, connectors]) => (
           <section key={category} className="panel grid gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
-                {category}
+                {humanizeConnectorCategory(category, locale)}
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-white">
-                {category} {dictionary.sourcesPage.sourcesSuffix}
+                {humanizeConnectorCategory(category, locale)} {dictionary.sourcesPage.sourcesSuffix}
               </h2>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
@@ -68,7 +168,7 @@ export default async function SourcesPage() {
                             : dictionary.sourcesPage.manual}
                     </span>
                     <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      {connector.category}
+                      {humanizeConnectorCategory(connector.category, locale)}
                     </span>
                   </div>
                   <h3 className="mt-3 text-lg font-medium text-white">{connector.name}</h3>
@@ -79,7 +179,7 @@ export default async function SourcesPage() {
                         key={`${connector.id}-${kind}`}
                         className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-zinc-400"
                       >
-                        {kind}
+                        {humanizeQueryKind(kind, locale)}
                       </span>
                     ))}
                   </div>
