@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
 import { formatMessage, getDictionary, type Locale } from "@/lib/i18n";
@@ -137,6 +139,24 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "E.164 parsing, country identification, formatting, and telecom metadata normalization.",
     officialUrl: "https://github.com/catamphetamine/libphonenumber-js",
     queryKinds: ["phone"],
+  },
+  {
+    id: "email-intelligence",
+    name: "Email Intelligence",
+    category: "Identity",
+    status: "live",
+    description: "Mailbox normalization, provider classification, and local-part pivots.",
+    officialUrl: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/email",
+    queryKinds: ["email"],
+  },
+  {
+    id: "gravatar",
+    name: "Gravatar",
+    category: "Identity",
+    status: "live",
+    description: "Public avatar footprint check for email hashes.",
+    officialUrl: "https://gravatar.com/",
+    queryKinds: ["email"],
   },
   {
     id: "twilio-lookup",
@@ -537,6 +557,43 @@ function safeDomainFromQuery(query: string) {
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "")
     .toLowerCase();
+}
+
+function parseEmailQuery(query: string) {
+  const normalized = query.trim().toLowerCase();
+  const [localPart = "", domain = ""] = normalized.split("@");
+
+  return {
+    normalized,
+    localPart,
+    domain,
+  };
+}
+
+function md5(value: string) {
+  return createHash("md5").update(value).digest("hex");
+}
+
+function isFreeMailDomain(domain: string) {
+  return new Set([
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "yahoo.com",
+    "icloud.com",
+    "me.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+    "pm.me",
+    "mail.com",
+    "yandex.ru",
+    "yandex.com",
+    "gmx.com",
+    "gmx.de",
+  ]).has(domain);
 }
 
 function normalizeBridgeItem(toolName: string, item: SearchItem, index: number): SearchItem {
@@ -1160,6 +1217,261 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
   ];
 }
 
+async function searchEmailIntelligence(
+  input: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const { normalized, localPart, domain } = parseEmailQuery(input);
+
+  if (!localPart || !domain) {
+    return [];
+  }
+
+  const corporate = !isFreeMailDomain(domain);
+
+  return [
+    {
+      id: `email-${normalized}`,
+      source: "Email Intelligence",
+      type: "normalized-email",
+      title: normalized,
+      subtitle:
+        locale === "ru"
+          ? corporate
+            ? "Корпоративный адрес"
+            : "Публичный почтовый провайдер"
+          : corporate
+            ? "Corporate mailbox"
+            : "Public webmail provider",
+      description:
+        locale === "ru"
+          ? "Нормализация email, локальная часть и доменная привязка для последующих OSINT-pivots."
+          : "Normalized mailbox, local-part, and domain pivots for follow-on OSINT steps.",
+      tags: ["email", "normalized", corporate ? "corporate" : "webmail"],
+      details: [
+        {
+          label: locale === "ru" ? "Локальная часть" : "Local part",
+          value: localPart,
+        },
+        {
+          label: locale === "ru" ? "Домен" : "Domain",
+          value: domain,
+        },
+        {
+          label: locale === "ru" ? "Тип провайдера" : "Provider type",
+          value:
+            locale === "ru"
+              ? corporate
+                ? "Корпоративный"
+                : "Публичный"
+              : corporate
+                ? "Corporate"
+                : "Public webmail",
+        },
+      ],
+    },
+  ];
+}
+
+async function searchGravatarProfile(
+  input: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const { normalized } = parseEmailQuery(input);
+  if (!normalized.includes("@")) {
+    return [];
+  }
+
+  const hash = md5(normalized);
+  const avatarUrl = `https://www.gravatar.com/avatar/${hash}?d=404&s=200`;
+
+  try {
+    const response = await fetch(avatarUrl, {
+      method: "HEAD",
+      cache: "no-store",
+      redirect: "follow",
+      signal: AbortSignal.timeout(7000),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return [
+      {
+        id: `gravatar-${hash}`,
+        source: "Gravatar",
+        type: "public-avatar",
+        title: normalized,
+        subtitle: locale === "ru" ? "Найден публичный avatar hash" : "Public avatar hash detected",
+        description:
+          locale === "ru"
+            ? "Для этого email-хэша найден публичный gravatar-след."
+            : "A public gravatar footprint was found for this email hash.",
+        url: avatarUrl,
+        tags: ["email", "gravatar", "avatar"],
+        details: [
+          {
+            label: locale === "ru" ? "MD5 hash" : "MD5 hash",
+            value: hash,
+          },
+        ],
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+async function searchCompaniesHouse(
+  query: string,
+  kind: Extract<QueryKind, "company" | "person" | "keyword">,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
+  if (!apiKey) {
+    return [];
+  }
+
+  const dictionary = getDictionary(locale);
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const endpoint =
+    kind === "person"
+      ? `https://api.company-information.service.gov.uk/search/officers?q=${encodeURIComponent(query)}`
+      : `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(query)}`;
+
+  const data = await fetchJson<{
+    items?: Array<Record<string, unknown>>;
+  }>(endpoint, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Basic ${auth}`,
+    },
+  });
+
+  return (data.items || []).slice(0, 6).map((item, index) => {
+    const title = String(item.title || item.snippet || `Companies House ${index + 1}`);
+    const description = String(item.description || "");
+    const address = String(item.address_snippet || "");
+    const companyNumber = String(item.company_number || "");
+    const links = (item.links || {}) as Record<string, unknown>;
+    const linkTarget = kind === "person" ? links.self : links.self;
+    const url =
+      typeof linkTarget === "string"
+        ? `https://find-and-update.company-information.service.gov.uk${linkTarget.replace(
+            /^\/company\//,
+            "/company/",
+          )}`
+        : undefined;
+
+    return {
+      id: `companies-house-${kind}-${index}`,
+      source: "Companies House",
+      type: kind === "person" ? "officer-record" : "company-record",
+      title,
+      subtitle: companyNumber || address || undefined,
+      description: description || address || undefined,
+      url,
+      tags: ["companies-house", kind],
+      details: [
+        ...(companyNumber
+          ? [{ label: locale === "ru" ? "Номер компании" : "Company number", value: companyNumber }]
+          : []),
+        ...(address
+          ? [{ label: locale === "ru" ? "Адрес" : "Address", value: address }]
+          : []),
+        ...(description
+          ? [{ label: dictionary.searchResults.itemLabels.status, value: description }]
+          : []),
+      ],
+    };
+  });
+}
+
+async function searchOpenCorporates(
+  query: string,
+  kind: Extract<QueryKind, "company" | "person" | "keyword">,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const token = process.env.OPENCORPORATES_API_TOKEN;
+  if (!token) {
+    return [];
+  }
+
+  const endpoint =
+    kind === "person"
+      ? `https://api.opencorporates.com/v0.4/officers/search?q=${encodeURIComponent(query)}&api_token=${encodeURIComponent(token)}`
+      : `https://api.opencorporates.com/v0.4/companies/search?q=${encodeURIComponent(query)}&api_token=${encodeURIComponent(token)}`;
+
+  const data = await fetchJson<{
+    results?: {
+      companies?: Array<{ company?: Record<string, unknown> }>;
+      officers?: Array<{ officer?: Record<string, unknown> }>;
+    };
+  }>(endpoint);
+
+  if (kind === "person") {
+    return (data.results?.officers || []).slice(0, 6).map((wrapper, index) => {
+      const officer = wrapper.officer || {};
+      return {
+        id: `opencorporates-officer-${index}`,
+        source: "OpenCorporates",
+        type: "officer-record",
+        title: String(officer.name || `Officer ${index + 1}`),
+        subtitle: String(officer.company_name || officer.position || ""),
+        description: String(officer.jurisdiction_code || ""),
+        url: typeof officer.opencorporates_url === "string" ? officer.opencorporates_url : undefined,
+        tags: ["opencorporates", "person"],
+        details: [
+          ...(officer.position
+            ? [{ label: locale === "ru" ? "Позиция" : "Position", value: String(officer.position) }]
+            : []),
+          ...(officer.jurisdiction_code
+            ? [{
+                label: locale === "ru" ? "Юрисдикция" : "Jurisdiction",
+                value: String(officer.jurisdiction_code),
+              }]
+            : []),
+        ],
+      };
+    });
+  }
+
+  return (data.results?.companies || []).slice(0, 6).map((wrapper, index) => {
+    const company = wrapper.company || {};
+    return {
+      id: `opencorporates-company-${index}`,
+      source: "OpenCorporates",
+      type: "company-record",
+      title: String(company.name || `Company ${index + 1}`),
+      subtitle: String(company.company_number || company.jurisdiction_code || ""),
+      description: String(company.current_status || company.registered_address_in_full || ""),
+      url: typeof company.opencorporates_url === "string" ? company.opencorporates_url : undefined,
+      tags: ["opencorporates", "company"],
+      details: [
+        ...(company.company_number
+          ? [{
+              label: locale === "ru" ? "Номер компании" : "Company number",
+              value: String(company.company_number),
+            }]
+          : []),
+        ...(company.jurisdiction_code
+          ? [{
+              label: locale === "ru" ? "Юрисдикция" : "Jurisdiction",
+              value: String(company.jurisdiction_code),
+            }]
+          : []),
+        ...(company.incorporation_date
+          ? [{
+              label: locale === "ru" ? "Дата регистрации" : "Incorporation",
+              value: String(company.incorporation_date),
+            }]
+          : []),
+      ],
+    };
+  });
+}
+
 async function searchCertificateTransparency(
   domain: string,
   locale: Locale,
@@ -1622,6 +1934,93 @@ export async function runUnifiedSearch(
   const usedSources = new Set<string>();
   const tasks: Array<Promise<void>> = [];
 
+  const enqueueDomainTasks = (domain: string, idPrefix: string) => {
+    tasks.push(
+      (async () => {
+        const items = await searchRdapDomain(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "RDAP",
+          dictionary.searchResults.sections.domainRegistrationTitle,
+          dictionary.searchResults.sections.domainRegistrationDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchDnsRecords(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Cloudflare DoH",
+          dictionary.searchResults.sections.dnsFootprintTitle,
+          dictionary.searchResults.sections.dnsFootprintDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchWebsiteMetadata(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Website Metadata",
+          dictionary.searchResults.sections.webMetadataTitle,
+          dictionary.searchResults.sections.webMetadataDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchCertificateTransparency(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "crt.sh",
+          dictionary.searchResults.sections.transparencyTitle,
+          dictionary.searchResults.sections.transparencyDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchSecurityTxt(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "security.txt",
+          dictionary.searchResults.sections.securityTxtTitle,
+          dictionary.searchResults.sections.securityTxtDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const section = await buildWaybackSection(
+          domain,
+          `${idPrefix}-wayback`,
+          dictionary.searchResults.sections.webArchivesTitle,
+          locale,
+        );
+        if (section) {
+          usedSources.add("Wayback Machine");
+          sections.push(section);
+        }
+      })(),
+    );
+  };
+
   if (inferredType === "phone") {
     tasks.push(
       (async () => {
@@ -1655,6 +2054,83 @@ export async function runUnifiedSearch(
         }
       })(),
     );
+  }
+
+  if (inferredType === "email") {
+    const { localPart, domain } = parseEmailQuery(normalizedQuery);
+
+    tasks.push(
+      (async () => {
+        const items = await searchEmailIntelligence(normalizedQuery, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Email Intelligence",
+          locale === "ru" ? "Анализ email" : "Email Intelligence",
+          locale === "ru"
+            ? "Нормализация адреса, тип провайдера и базовые pivots по локальной части и домену."
+            : "Normalized mailbox, provider type, and pivot-ready local-part/domain details.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchGravatarProfile(normalizedQuery, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Gravatar",
+          locale === "ru" ? "Публичный avatar-след" : "Public Avatar Footprint",
+          locale === "ru"
+            ? "Проверка публичного gravatar-следа по email-хэшу."
+            : "Checks for a public gravatar footprint for the mailbox hash.",
+          items,
+        );
+      })(),
+    );
+
+    if (localPart) {
+      tasks.push(
+        (async () => {
+          const items = [
+            ...(await searchGithubExactUser(localPart, locale)),
+            ...(await searchGithubUsers(localPart, locale)),
+          ];
+          addSection(
+            sections,
+            usedSources,
+            "GitHub",
+            locale === "ru" ? "GitHub по локальной части email" : "GitHub from Email Local-Part",
+            locale === "ru"
+              ? "Публичные GitHub-профили, которые совпадают с локальной частью email."
+              : "Public GitHub profiles that match the email local-part.",
+            items,
+          );
+        })(),
+      );
+
+      tasks.push(
+        (async () => {
+          const items = await searchUsernameFootprint(localPart, locale);
+          addSection(
+            sections,
+            usedSources,
+            "Username Pivot",
+            locale === "ru" ? "Username-pivots из email" : "Username Pivots from Email",
+            locale === "ru"
+              ? "Нативные публичные профили, найденные по локальной части email."
+              : "Native public profile pivots found from the email local-part.",
+            items,
+          );
+        })(),
+      );
+    }
+
+    if (domain) {
+      enqueueDomainTasks(domain, "email-domain");
+    }
   }
 
   if (inferredType === "company" || inferredType === "keyword") {
@@ -1701,6 +2177,62 @@ export async function runUnifiedSearch(
         );
       })(),
     );
+
+    tasks.push(
+      (async () => {
+        const items = await searchCompaniesHouse(
+          normalizedQuery,
+          inferredType === "person" ? "person" : "company",
+          locale,
+        );
+        addSection(
+          sections,
+          usedSources,
+          "Companies House",
+          locale === "ru" ? "Companies House" : "Companies House",
+          locale === "ru"
+            ? "Официальные корпоративные и officer-записи из реестра Великобритании."
+            : "Official UK registry company and officer records.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchOpenCorporates(
+          normalizedQuery,
+          inferredType === "person" ? "person" : "company",
+          locale,
+        );
+        addSection(
+          sections,
+          usedSources,
+          "OpenCorporates",
+          locale === "ru" ? "OpenCorporates" : "OpenCorporates",
+          locale === "ru"
+            ? "Глобальные корпоративные и officer-совпадения из OpenCorporates."
+            : "Global company and officer matches from OpenCorporates.",
+          items,
+        );
+      })(),
+    );
+
+    if (!process.env.COMPANIES_HOUSE_API_KEY) {
+      warnings.push(
+        locale === "ru"
+          ? "Companies House подключён как официальный keyed-коннектор. Добавьте COMPANIES_HOUSE_API_KEY, чтобы включить живой поиск."
+          : "Companies House is wired as an official keyed connector. Add COMPANIES_HOUSE_API_KEY to activate live search.",
+      );
+    }
+
+    if (!process.env.OPENCORPORATES_API_TOKEN) {
+      warnings.push(
+        locale === "ru"
+          ? "OpenCorporates подключён как keyed-коннектор. Добавьте OPENCORPORATES_API_TOKEN, чтобы включить живой поиск."
+          : "OpenCorporates is wired as a keyed connector. Add OPENCORPORATES_API_TOKEN to activate live search.",
+      );
+    }
   }
 
   if (
@@ -1779,91 +2311,7 @@ export async function runUnifiedSearch(
 
   if (inferredType === "domain") {
     const domain = safeDomainFromQuery(normalizedQuery);
-
-    tasks.push(
-      (async () => {
-        const items = await searchRdapDomain(domain, locale);
-        addSection(
-          sections,
-          usedSources,
-          "RDAP",
-          dictionary.searchResults.sections.domainRegistrationTitle,
-          dictionary.searchResults.sections.domainRegistrationDescription,
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const items = await searchDnsRecords(domain, locale);
-        addSection(
-          sections,
-          usedSources,
-          "Cloudflare DoH",
-          dictionary.searchResults.sections.dnsFootprintTitle,
-          dictionary.searchResults.sections.dnsFootprintDescription,
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const items = await searchWebsiteMetadata(domain, locale);
-        addSection(
-          sections,
-          usedSources,
-          "Website Metadata",
-          dictionary.searchResults.sections.webMetadataTitle,
-          dictionary.searchResults.sections.webMetadataDescription,
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const items = await searchCertificateTransparency(domain, locale);
-        addSection(
-          sections,
-          usedSources,
-          "crt.sh",
-          dictionary.searchResults.sections.transparencyTitle,
-          dictionary.searchResults.sections.transparencyDescription,
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const items = await searchSecurityTxt(domain, locale);
-        addSection(
-          sections,
-          usedSources,
-          "security.txt",
-          dictionary.searchResults.sections.securityTxtTitle,
-          dictionary.searchResults.sections.securityTxtDescription,
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const section = await buildWaybackSection(
-          domain,
-          "wayback-domain",
-          dictionary.searchResults.sections.webArchivesTitle,
-          locale,
-        );
-        if (section) {
-          usedSources.add("Wayback Machine");
-          sections.push(section);
-        }
-      })(),
-    );
+    enqueueDomainTasks(domain, "domain");
   }
 
   if (inferredType === "username") {

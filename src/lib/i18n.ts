@@ -109,7 +109,7 @@ const dictionaries = {
       run: "Run Search",
       running: "Searching...",
       searchPaths:
-        "Native search paths: phone lookup, Wikidata, SEC, GLEIF, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
+        "Native search paths: email intelligence, Gravatar, phone lookup, Wikidata, SEC, GLEIF, Companies House, OpenCorporates, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
       snapshot: "Search Snapshot",
       dossierEyebrow: "Dossier",
       saveTitle: "Save this investigation",
@@ -461,7 +461,7 @@ const dictionaries = {
       run: "Запустить поиск",
       running: "Идёт поиск...",
       searchPaths:
-        "Нативные пути поиска: phone lookup, Wikidata, SEC, GLEIF, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
+        "Нативные пути поиска: email intelligence, Gravatar, phone lookup, Wikidata, SEC, GLEIF, Companies House, OpenCorporates, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
       snapshot: "Снимок поиска",
       dossierEyebrow: "Досье",
       saveTitle: "Сохранить это исследование",

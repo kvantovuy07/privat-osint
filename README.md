@@ -7,9 +7,11 @@ Private OSINT workbench for lawful company research, access-controlled investiga
 - Matrix-style login screen and access request intake
 - Seeded admin account with approval and rejection workflow
 - Admin cabinet for user creation, quotas, expiry windows, and audit visibility
-- Unified search console with live public connectors and curated next-source recommendations
+- Unified search console with live public connectors for company, domain, username, person, email, and phone pivots
 - Source library covering registry, sanctions, code intelligence, and technical footprint tools
 - Personal dossier storage for saved investigation snapshots
+- RU / EN language switcher
+- Deploy-ready heavy worker for Sherlock, Maigret, theHarvester, Subfinder, and Amass
 
 ## Stack
 
@@ -58,7 +60,8 @@ npm run db:seed
 ## Notes
 
 - This project is intentionally limited to lawful public-source intelligence.
-- Built-in live search currently uses official GitHub search and official GLEIF registry search.
-- The rest of the OSINT stack is represented as a connector catalog and staged integration surface for later expansion.
+- Built-in live search now covers registry, GitHub, Wikidata, email/domain pivots, archives, DNS, certificate transparency, SEO metadata, and phone normalization.
+- Official keyed connectors are supported for Crunchbase, Companies House, and OpenCorporates.
+- Heavy tools are meant to run through the self-hosted worker in [workers/heavy-osint](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/README.md), not inside Vercel request-time.
 - `postinstall` repairs two broken registry packages in this environment before generating Prisma Client.
 - The first request to `/login` also ensures the seed admin exists if the database is empty.
