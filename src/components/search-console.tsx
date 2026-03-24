@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 
+import { useLocale } from "@/components/locale-provider";
 import { runSearchAction, saveDossierAction } from "@/actions/search";
 import { PendingButton } from "@/components/pending-button";
 import { emptyActionState } from "@/lib/form-state";
@@ -37,6 +38,7 @@ function SearchStateNotice({
 }
 
 export function SearchConsole() {
+  const { dictionary } = useLocale();
   const [searchState, searchAction] = useActionState(
     runSearchAction,
     initialSearchState,
@@ -51,34 +53,32 @@ export function SearchConsole() {
       <form action={searchAction} className="panel grid gap-4">
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.35em] text-emerald-200/70">
-            Unified Search
+            {dictionary.searchConsole.eyebrow}
           </p>
           <h1 className="text-3xl font-semibold text-white md:text-5xl">
-            Search across lawful company, domain, archive, and username intelligence in one place.
+            {dictionary.searchConsole.title}
           </h1>
           <p className="max-w-3xl text-sm text-zinc-400 md:text-base">
-            Use a company name, domain, username, email, repository, person, phone number, or keyword.
-            The console now combines registries, public code intelligence, archives, SEO
-            metadata, domain registration data, and deployable username pivots inside one analyst workflow.
+            {dictionary.searchConsole.description}
           </p>
         </div>
         <div className="relative">
           <input
             name="query"
             required
-            placeholder="company / domain / username / +phone / brand / repo / person / email"
+            placeholder={dictionary.searchConsole.placeholder}
             className="h-16 w-full rounded-[1.5rem] border border-white/10 bg-white/5 px-6 text-lg text-white outline-none transition placeholder:text-white/35 focus:border-emerald-400/60 focus:bg-white/7"
           />
         </div>
         <SearchStateNotice status={searchState.status} message={searchState.message} />
         <div className="flex flex-wrap gap-3 text-sm">
           <PendingButton
-            label="Run Search"
-            pendingLabel="Searching..."
+            label={dictionary.searchConsole.run}
+            pendingLabel={dictionary.searchConsole.running}
             className="rounded-2xl bg-emerald-400 px-5 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
           />
           <span className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-zinc-400">
-            Search paths: phone lookup, Crunchbase-ready, SEC, GLEIF, Wayback, DNS, RDAP, SEO, GitHub, username pivots
+            {dictionary.searchConsole.searchPaths}
           </span>
         </div>
       </form>
@@ -89,7 +89,7 @@ export function SearchConsole() {
             <div className="space-y-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
-                  Search Snapshot
+                  {dictionary.searchConsole.snapshot}
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold text-white">
                   {searchState.result.query}
@@ -128,11 +128,13 @@ export function SearchConsole() {
               />
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
-                  Dossier
+                  {dictionary.searchConsole.dossierEyebrow}
                 </p>
-                <h3 className="text-xl font-semibold text-white">Save this investigation</h3>
+                <h3 className="text-xl font-semibold text-white">
+                  {dictionary.searchConsole.saveTitle}
+                </h3>
                 <p className="text-sm text-zinc-400">
-                  Store the current result set in your personal cabinet with a title and analyst note.
+                  {dictionary.searchConsole.saveDescription}
                 </p>
               </div>
               <div className="mt-4 grid gap-3">
@@ -144,13 +146,13 @@ export function SearchConsole() {
                 <textarea
                   name="description"
                   rows={4}
-                  placeholder="Why this search matters, what to verify next, and how it connects to the account strategy."
+                  placeholder={dictionary.searchConsole.dossierPlaceholder}
                   className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-emerald-400/50"
                 />
                 <SearchStateNotice status={saveState.status} message={saveState.message} />
                 <PendingButton
-                  label="Save Dossier"
-                  pendingLabel="Saving..."
+                  label={dictionary.searchConsole.save}
+                  pendingLabel={dictionary.searchConsole.saving}
                   className="rounded-xl bg-white/10 px-4 py-3 font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
@@ -164,7 +166,7 @@ export function SearchConsole() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h3 className="text-xl font-semibold text-white">{section.title}</h3>
                     <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-zinc-400">
-                      {section.items.length} results
+                      {section.items.length} {dictionary.common.resultsSuffix}
                     </span>
                   </div>
                   <p className="text-sm text-zinc-400">{section.description}</p>
@@ -222,7 +224,7 @@ export function SearchConsole() {
                           rel="noreferrer"
                           className="mt-4 inline-flex text-sm text-emerald-200 transition hover:text-emerald-100"
                         >
-                          Open source record
+                          {dictionary.common.openSourceRecord}
                         </a>
                       ) : null}
                     </article>

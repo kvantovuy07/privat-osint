@@ -8,6 +8,7 @@ import {
   reviewAccessRequestAction,
   updateUserAction,
 } from "@/actions/admin";
+import { useLocale } from "@/components/locale-provider";
 import { PendingButton } from "@/components/pending-button";
 import { emptyActionState } from "@/lib/form-state";
 
@@ -63,13 +64,15 @@ function Input({
 function RoleSelect({
   defaultValue,
   name = "role",
+  label,
 }: {
   defaultValue?: Role;
   name?: string;
+  label: string;
 }) {
   return (
     <label className="grid gap-2 text-sm text-zinc-300">
-      <span>Role</span>
+      <span>{label}</span>
       <select
         name={name}
         defaultValue={defaultValue || "VIEWER"}
@@ -85,29 +88,54 @@ function RoleSelect({
 
 export function CreateUserForm() {
   const [state, formAction] = useActionState(createUserAction, emptyActionState);
+  const { dictionary } = useLocale();
 
   return (
     <form action={formAction} className="panel grid gap-4">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-white">Create Account</h2>
+        <h2 className="text-lg font-semibold text-white">{dictionary.adminForms.createTitle}</h2>
         <p className="text-sm text-zinc-400">
-          Provision analysts and viewers with quotas, expiry, and a defined role.
+          {dictionary.adminForms.createDescription}
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <Input label="Username" name="username" placeholder="new-user" />
-        <Input label="Password" name="password" type="password" placeholder="Temporary password" />
-        <Input label="Name" name="name" placeholder="Display name" />
-        <Input label="Email" name="email" type="email" placeholder="optional@company.com" />
-        <RoleSelect />
-        <Input label="Access expires" name="accessExpiresAt" type="date" />
-        <Input label="Total query limit" name="queryLimitTotal" type="number" placeholder="Unlimited if blank" />
-        <Input label="Monthly query limit" name="queryLimitMonthly" type="number" placeholder="Unlimited if blank" />
+        <Input label={dictionary.adminForms.username} name="username" placeholder="new-user" />
+        <Input
+          label={dictionary.adminForms.password}
+          name="password"
+          type="password"
+          placeholder={dictionary.adminForms.temporaryPassword}
+        />
+        <Input
+          label={dictionary.adminForms.name}
+          name="name"
+          placeholder={dictionary.adminForms.displayName}
+        />
+        <Input
+          label={dictionary.adminForms.email}
+          name="email"
+          type="email"
+          placeholder={dictionary.adminForms.optionalEmail}
+        />
+        <RoleSelect label={dictionary.adminForms.role} />
+        <Input label={dictionary.adminForms.accessExpires} name="accessExpiresAt" type="date" />
+        <Input
+          label={dictionary.adminForms.totalQueryLimit}
+          name="queryLimitTotal"
+          type="number"
+          placeholder={dictionary.adminForms.unlimitedIfBlank}
+        />
+        <Input
+          label={dictionary.adminForms.monthlyQueryLimit}
+          name="queryLimitMonthly"
+          type="number"
+          placeholder={dictionary.adminForms.unlimitedIfBlank}
+        />
       </div>
       <FormNote status={state.status} message={state.message} />
       <PendingButton
-        label="Create User"
-        pendingLabel="Creating..."
+        label={dictionary.adminForms.createUser}
+        pendingLabel={dictionary.adminForms.creating}
         className="rounded-xl bg-emerald-400 px-4 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </form>
@@ -119,6 +147,7 @@ export function ReviewRequestForm({
 }: {
   request: AccessRequest;
 }) {
+  const { dictionary } = useLocale();
   const [state, formAction] = useActionState(
     reviewAccessRequestAction,
     emptyActionState,
@@ -143,37 +172,46 @@ export function ReviewRequestForm({
       {request.comment ? <p className="text-sm text-zinc-400">{request.comment}</p> : null}
       <div className="grid gap-3 md:grid-cols-2">
         <Input
-          label="Approve as username"
+          label={dictionary.adminForms.approveAsUsername}
           name="username"
           defaultValue={request.requestedUsername}
         />
-        <Input label="Password" name="password" type="password" placeholder="Required for approval" />
-        <RoleSelect defaultValue="VIEWER" />
-        <Input label="Access expires" name="accessExpiresAt" type="date" />
-        <Input label="Total query limit" name="queryLimitTotal" type="number" />
-        <Input label="Monthly query limit" name="queryLimitMonthly" type="number" />
+        <Input
+          label={dictionary.adminForms.password}
+          name="password"
+          type="password"
+          placeholder={dictionary.adminForms.requiredForApproval}
+        />
+        <RoleSelect defaultValue="VIEWER" label={dictionary.adminForms.role} />
+        <Input label={dictionary.adminForms.accessExpires} name="accessExpiresAt" type="date" />
+        <Input label={dictionary.adminForms.totalQueryLimit} name="queryLimitTotal" type="number" />
+        <Input
+          label={dictionary.adminForms.monthlyQueryLimit}
+          name="queryLimitMonthly"
+          type="number"
+        />
       </div>
       <label className="grid gap-2 text-sm text-zinc-300">
-        <span>Review note</span>
+        <span>{dictionary.adminForms.reviewNote}</span>
         <textarea
           name="reviewNote"
           rows={3}
           className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none transition focus:border-emerald-400/50"
-          placeholder="Why approved or rejected"
+          placeholder={dictionary.adminForms.reviewNotePlaceholder}
         />
       </label>
       <FormNote status={state.status} message={state.message} />
       <div className="flex flex-wrap gap-3">
         <PendingButton
-          label="Approve and Create"
-          pendingLabel="Applying..."
+          label={dictionary.adminForms.approveAndCreate}
+          pendingLabel={dictionary.adminForms.applying}
           name="decision"
           value="APPROVE"
           className="rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <PendingButton
-          label="Reject"
-          pendingLabel="Applying..."
+          label={dictionary.adminForms.reject}
+          pendingLabel={dictionary.adminForms.applying}
           name="decision"
           value="REJECT"
           className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-2.5 text-sm font-medium text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
@@ -189,6 +227,7 @@ export function UpdateUserForm({
   user: User;
 }) {
   const [state, formAction] = useActionState(updateUserAction, emptyActionState);
+  const { dictionary } = useLocale();
 
   return (
     <form action={formAction} className="grid gap-3 rounded-2xl border border-white/10 bg-black/25 p-4">
@@ -197,7 +236,7 @@ export function UpdateUserForm({
         <div>
           <h3 className="text-base font-semibold text-white">{user.username}</h3>
           <p className="text-sm text-zinc-400">
-            {user.email || "No email"} • {user.role}
+            {user.email || dictionary.adminForms.noEmail} • {user.role}
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm text-zinc-300">
@@ -207,37 +246,47 @@ export function UpdateUserForm({
             defaultChecked={user.isActive}
             className="h-4 w-4 rounded border-white/10 bg-transparent accent-emerald-400"
           />
-          Active
+          {dictionary.common.active}
         </label>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <Input label="Name" name="name" defaultValue={user.name} />
-        <Input label="Email" name="email" type="email" defaultValue={user.email} />
-        <RoleSelect defaultValue={user.role} />
+        <Input label={dictionary.adminForms.name} name="name" defaultValue={user.name} />
         <Input
-          label="Access expires"
+          label={dictionary.adminForms.email}
+          name="email"
+          type="email"
+          defaultValue={user.email}
+        />
+        <RoleSelect defaultValue={user.role} label={dictionary.adminForms.role} />
+        <Input
+          label={dictionary.adminForms.accessExpires}
           name="accessExpiresAt"
           type="date"
           defaultValue={user.accessExpiresAt?.toISOString().slice(0, 10)}
         />
         <Input
-          label="Total query limit"
+          label={dictionary.adminForms.totalQueryLimit}
           name="queryLimitTotal"
           type="number"
           defaultValue={user.queryLimitTotal}
         />
         <Input
-          label="Monthly query limit"
+          label={dictionary.adminForms.monthlyQueryLimit}
           name="queryLimitMonthly"
           type="number"
           defaultValue={user.queryLimitMonthly}
         />
       </div>
-      <Input label="Reset password" name="password" type="password" placeholder="Leave blank to keep current password" />
+      <Input
+        label={dictionary.adminForms.password}
+        name="password"
+        type="password"
+        placeholder={dictionary.adminForms.keepCurrentPassword}
+      />
       <FormNote status={state.status} message={state.message} />
       <PendingButton
-        label="Save Changes"
-        pendingLabel="Saving..."
+        label={dictionary.adminForms.saveChanges}
+        pendingLabel={dictionary.adminForms.saving}
         className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </form>

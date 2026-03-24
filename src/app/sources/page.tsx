@@ -2,9 +2,13 @@ import { connectorCatalog } from "@/lib/osint/catalog";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
+import { getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 
 export default async function SourcesPage() {
   const user = await requireUser();
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
   const pendingRequestsCount =
     user.role === "ADMIN"
       ? await prisma.accessRequest.count({ where: { status: "PENDING" } })
@@ -20,8 +24,9 @@ export default async function SourcesPage() {
   return (
     <AppShell
       current="sources"
-      title="Connector Library"
-      subtitle="Live sources are already callable from the search console. Ready and keyed connectors are staged so the platform can keep growing without breaking the lawful OSINT workflow."
+      currentPath="/sources"
+      title={dictionary.sourcesPage.title}
+      subtitle={dictionary.sourcesPage.subtitle}
       user={user}
       pendingRequestsCount={pendingRequestsCount}
     >
@@ -32,7 +37,9 @@ export default async function SourcesPage() {
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
                 {category}
               </p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">{category} Sources</h2>
+              <h2 className="mt-2 text-2xl font-semibold text-white">
+                {category} {dictionary.sourcesPage.sourcesSuffix}
+              </h2>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {connectors.map((connector) => (
@@ -44,7 +51,7 @@ export default async function SourcesPage() {
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.3em] ${
                         connector.status === "live"
-                          ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+                            ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
                           : connector.status === "ready"
                             ? "border border-sky-400/20 bg-sky-400/10 text-sky-200"
                             : connector.status === "requires_key"
@@ -52,7 +59,13 @@ export default async function SourcesPage() {
                               : "border border-white/10 bg-white/5 text-zinc-300"
                       }`}
                     >
-                      {connector.status.replace("_", " ")}
+                      {connector.status === "live"
+                        ? dictionary.sourcesPage.live
+                        : connector.status === "ready"
+                          ? dictionary.sourcesPage.ready
+                          : connector.status === "requires_key"
+                            ? dictionary.sourcesPage.requiresKey
+                            : dictionary.sourcesPage.manual}
                     </span>
                     <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                       {connector.category}
@@ -81,7 +94,7 @@ export default async function SourcesPage() {
                     rel="noreferrer"
                     className="mt-4 inline-flex text-sm text-emerald-200 transition hover:text-emerald-100"
                   >
-                    Open official source
+                    {dictionary.common.openOfficialSource}
                   </a>
                 </article>
               ))}

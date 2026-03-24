@@ -2,10 +2,14 @@ import Link from "next/link";
 import type { Role } from "@prisma/client";
 
 import { logoutAction } from "@/actions/auth";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 
 type ShellProps = {
   children: React.ReactNode;
   current: "workspace" | "sources" | "dossiers" | "admin";
+  currentPath: string;
   title: string;
   subtitle: string;
   user: {
@@ -19,31 +23,36 @@ type ShellProps = {
   pendingRequestsCount?: number;
 };
 
-const navLinks = [
-  { href: "/workspace", key: "workspace", label: "Search" },
-  { href: "/sources", key: "sources", label: "Sources" },
-  { href: "/dossiers", key: "dossiers", label: "Dossiers" },
-] as const;
-
-export function AppShell({
+export async function AppShell({
   children,
   current,
+  currentPath,
   title,
   subtitle,
   user,
   pendingRequestsCount = 0,
 }: ShellProps) {
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
+  const navLinks = [
+    { href: "/workspace", key: "workspace", label: dictionary.nav.workspace },
+    { href: "/sources", key: "sources", label: dictionary.nav.sources },
+    { href: "/dossiers", key: "dossiers", label: dictionary.nav.dossiers },
+  ] as const;
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(15,185,129,0.18),transparent_30%),linear-gradient(180deg,#030606_0%,#020303_100%)] text-white">
       <div className="mx-auto grid min-h-screen max-w-[1600px] lg:grid-cols-[280px_1fr]">
         <aside className="border-r border-white/5 bg-black/30 px-6 py-8 backdrop-blur">
           <div className="rounded-[1.75rem] border border-emerald-400/15 bg-emerald-400/6 p-5 shadow-[0_0_80px_rgba(16,185,129,0.05)]">
             <p className="text-xs uppercase tracking-[0.4em] text-emerald-200/70">
-              Privat OSINT
+              {dictionary.common.appName}
             </p>
-            <h1 className="mt-3 text-2xl font-semibold">Private Intelligence Workspace</h1>
+            <h1 className="mt-3 text-2xl font-semibold">{dictionary.common.workspaceName}</h1>
             <p className="mt-3 text-sm text-zinc-400">
-              Lawful open-source intelligence for company research, lead signals, and due diligence.
+              {locale === "ru"
+                ? "Законный OSINT для исследования компаний, лидогенерации и due diligence."
+                : "Lawful open-source intelligence for company research, lead signals, and due diligence."}
             </p>
           </div>
 
@@ -70,34 +79,36 @@ export function AppShell({
                     : "border border-transparent bg-white/[0.02] text-zinc-400 hover:border-white/10 hover:bg-white/[0.05] hover:text-white"
                 }`}
               >
-                Admin {pendingRequestsCount > 0 ? `(${pendingRequestsCount})` : ""}
+                {dictionary.nav.admin} {pendingRequestsCount > 0 ? `(${pendingRequestsCount})` : ""}
               </Link>
             ) : null}
           </nav>
 
           <div className="mt-8 grid gap-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">Operator</p>
+              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                {dictionary.common.operator}
+              </p>
               <p className="mt-2 text-lg font-medium text-white">{user.username}</p>
               <p className="text-sm text-zinc-400">{user.role}</p>
             </div>
             <div className="grid gap-3 text-sm">
               <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-zinc-500">Monthly usage</p>
+                <p className="text-zinc-500">{dictionary.common.monthlyUsage}</p>
                 <p className="mt-1 text-white">
                   {user.queryUsedMonthly}
                   {typeof user.queryLimitMonthly === "number"
                     ? ` / ${user.queryLimitMonthly}`
-                    : " / unlimited"}
+                    : ` / ${dictionary.common.unlimited}`}
                 </p>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-zinc-500">Total usage</p>
+                <p className="text-zinc-500">{dictionary.common.totalUsage}</p>
                 <p className="mt-1 text-white">
                   {user.queryUsedTotal}
                   {typeof user.queryLimitTotal === "number"
                     ? ` / ${user.queryLimitTotal}`
-                    : " / unlimited"}
+                    : ` / ${dictionary.common.unlimited}`}
                 </p>
               </div>
             </div>
@@ -106,7 +117,7 @@ export function AppShell({
                 type="submit"
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
               >
-                Log out
+                {dictionary.common.logOut}
               </button>
             </form>
           </div>
@@ -121,8 +132,11 @@ export function AppShell({
               <h2 className="mt-2 text-3xl font-semibold text-white">{title}</h2>
               <p className="mt-2 max-w-3xl text-sm text-zinc-400">{subtitle}</p>
             </div>
-            <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-50/90">
-              Only lawful public sources. No bypassing access controls, private account intrusion, or hidden collection.
+            <div className="flex flex-col items-start gap-3 md:items-end">
+              <LanguageSwitcher currentPath={currentPath} />
+              <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-50/90">
+                {dictionary.common.lawfulDisclaimer}
+              </div>
             </div>
           </header>
           {children}

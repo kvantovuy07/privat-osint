@@ -2,6 +2,8 @@ import "server-only";
 
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
+import { formatMessage, getDictionary, type Locale } from "@/lib/i18n";
+
 export type QueryKind =
   | "company"
   | "domain"
@@ -214,9 +216,36 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     name: "Website Metadata",
     category: "Technical Footprint",
     status: "live",
-    description: "Homepage title, description, canonical, robots, and sitemap checks.",
+    description: "Homepage title, description, canonical, robots, sitemap, and contact hint extraction.",
     officialUrl: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta/name",
     queryKinds: ["domain"],
+  },
+  {
+    id: "crtsh",
+    name: "crt.sh",
+    category: "Technical Footprint",
+    status: "live",
+    description: "Certificate transparency logs for hostnames and passive subdomain hints.",
+    officialUrl: "https://crt.sh/",
+    queryKinds: ["domain"],
+  },
+  {
+    id: "security-txt",
+    name: "security.txt",
+    category: "Technical Footprint",
+    status: "live",
+    description: "Public security contact file and disclosure policy discovery.",
+    officialUrl: "https://securitytxt.org/",
+    queryKinds: ["domain"],
+  },
+  {
+    id: "wikidata",
+    name: "Wikidata Entity Search",
+    category: "Entity Intelligence",
+    status: "live",
+    description: "Public entity descriptions and reference pivots for organizations and people.",
+    officialUrl: "https://www.wikidata.org/wiki/Wikidata:Main_Page",
+    queryKinds: ["company", "person", "keyword"],
   },
   {
     id: "crunchbase",
@@ -250,11 +279,11 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     id: "opensanctions",
     name: "OpenSanctions",
     category: "Compliance",
-    status: "ready",
+    status: "requires_key",
     description: "Sanctions, watchlists, PEPs, and due diligence datasets.",
     officialUrl: "https://www.opensanctions.org/docs/api/",
     queryKinds: ["company", "person", "keyword", "phone"],
-    notes: "Useful for compliance and screening workflows. Add API or dataset bridge when ready to operationalize it.",
+    notes: "The current OpenSanctions API requires credentials. Wire an API key or self-host a synced dataset when you operationalize this layer.",
   },
   {
     id: "spiderfoot",
@@ -264,7 +293,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Automated investigation engine for domains, IPs, emails, usernames, and phone-linked pivots.",
     officialUrl: "https://github.com/smicallef/spiderfoot",
     queryKinds: ["company", "domain", "email", "username", "keyword", "phone"],
-    notes: "Set SPIDERFOOT_BRIDGE_URL to surface real SpiderFoot results inside the app.",
+    notes: "The workbench already calls native HTTP sources for DNS, RDAP, Wayback, certificate logs, metadata, and username pivots. Use SpiderFoot as an optional self-hosted depth layer when you need heavier automation.",
   },
   {
     id: "theharvester",
@@ -274,7 +303,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Public email, domain, and subdomain discovery across search sources.",
     officialUrl: "https://github.com/laramies/theHarvester",
     queryKinds: ["domain", "company", "email", "keyword"],
-    notes: "Set THEHARVESTER_BRIDGE_URL to activate a worker-backed integration.",
+    notes: "Best treated as an optional depth worker. The live app now pulls several native public sources directly for request-time results.",
   },
   {
     id: "subfinder",
@@ -294,7 +323,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Attack surface mapping and network infrastructure discovery.",
     officialUrl: "https://github.com/owasp-amass/amass",
     queryKinds: ["domain", "company"],
-    notes: "Set AMASS_BRIDGE_URL to activate deeper graph and infra discovery.",
+    notes: "Use as a background depth layer when you need large-scale infrastructure mapping beyond direct request-time sources.",
   },
   {
     id: "web-check",
@@ -323,7 +352,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Username enumeration across public services.",
     officialUrl: "https://github.com/sherlock-project/sherlock",
     queryKinds: ["username", "person"],
-    notes: "Set SHERLOCK_BRIDGE_URL to connect a real Sherlock worker. The app already includes a lightweight deployable footprint layer.",
+    notes: "The live app now performs native Sherlock-class probes across a curated public platform set. Use a dedicated Sherlock worker only when you want much broader coverage.",
   },
   {
     id: "maigret",
@@ -333,7 +362,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Username and account footprint search across public sites.",
     officialUrl: "https://github.com/soxoj/maigret",
     queryKinds: ["username", "person"],
-    notes: "Set MAIGRET_BRIDGE_URL to connect a richer username worker.",
+    notes: "Optional richer depth layer for large username sweeps. The native app already runs direct public footprint checks at request time.",
   },
   {
     id: "gitleaks",
@@ -382,6 +411,10 @@ export function inferQueryKind(input: string): QueryKind {
 
   if (query.includes("/")) {
     return "repository";
+  }
+
+  if (looksLikePersonName(query)) {
+    return "person";
   }
 
   if (query.split(" ").length >= 2) {
@@ -445,12 +478,57 @@ function toTitleCase(text: string) {
   return text.replace(/(^\w|\s\w)/g, (match) => match.toUpperCase());
 }
 
+function humanizeQueryKind(kind: QueryKind, locale: Locale) {
+  if (locale === "ru") {
+    return {
+      company: "Компания",
+      domain: "Домен",
+      username: "Username",
+      email: "Email",
+      repository: "Репозиторий",
+      person: "Человек",
+      keyword: "Ключевое слово",
+      phone: "Телефон",
+    }[kind];
+  }
+
+  return toTitleCase(kind);
+}
+
 function extractMatch(html: string, pattern: RegExp) {
   return pattern.exec(html)?.[1]?.replace(/\s+/g, " ").trim();
 }
 
+function extractMatches(text: string, pattern: RegExp) {
+  return Array.from(text.matchAll(pattern))
+    .map((match) => match[1]?.trim())
+    .filter(Boolean) as string[];
+}
+
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 function canonicalizeUsername(query: string) {
   return query.replace(/^@/, "").trim();
+}
+
+function looksLikePersonName(query: string) {
+  const tokens = query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (tokens.length < 2 || tokens.length > 3) {
+    return false;
+  }
+
+  const companyHints = /\b(inc|llc|ltd|corp|company|co|gmbh|s\.a\.|sa|plc|group|holdings)\b/i;
+  if (companyHints.test(query)) {
+    return false;
+  }
+
+  return tokens.every((token) => /^[\p{L}][\p{L}'-]+$/u.test(token));
 }
 
 function safeDomainFromQuery(query: string) {
@@ -522,7 +600,8 @@ async function callToolBridge(
   };
 }
 
-async function searchGleifCompanies(query: string): Promise<SearchItem[]> {
+async function searchGleifCompanies(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const url = `https://api.gleif.org/api/v1/lei-records?filter[entity.legalName]=${encodeURIComponent(
     query,
   )}&page[size]=5`;
@@ -562,14 +641,24 @@ async function searchGleifCompanies(query: string): Promise<SearchItem[]> {
     url: `https://search.gleif.org/#/record/${record.attributes.lei}`,
     tags: ["official registry", "lei"],
     details: [
-      { label: "Jurisdiction", value: record.attributes.entity.legalJurisdiction || "Unknown" },
-      { label: "Country", value: record.attributes.entity.legalAddress?.country || "Unknown" },
-      { label: "Status", value: record.attributes.registration?.status || "Unknown" },
+      {
+        label: dictionary.searchResults.itemLabels.jurisdiction,
+        value: record.attributes.entity.legalJurisdiction || dictionary.common.unknown,
+      },
+      {
+        label: dictionary.searchResults.itemLabels.country,
+        value: record.attributes.entity.legalAddress?.country || dictionary.common.unknown,
+      },
+      {
+        label: dictionary.searchResults.itemLabels.status,
+        value: record.attributes.registration?.status || dictionary.common.unknown,
+      },
     ],
   }));
 }
 
-async function searchSecCompanies(query: string): Promise<SearchItem[]> {
+async function searchSecCompanies(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const data = await fetchJson<
     Record<
       string,
@@ -606,13 +695,14 @@ async function searchSecCompanies(query: string): Promise<SearchItem[]> {
     url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${item.cik_str}&owner=exclude&count=40`,
     tags: ["sec", "public company"],
     details: [
-      { label: "Ticker", value: item.ticker },
-      { label: "CIK", value: String(item.cik_str) },
+      { label: dictionary.searchResults.itemLabels.ticker, value: item.ticker },
+      { label: dictionary.searchResults.itemLabels.cik, value: String(item.cik_str) },
     ],
   }));
 }
 
-async function searchGithubUsers(query: string): Promise<SearchItem[]> {
+async function searchGithubUsers(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const data = await fetchJson<{
     items: Array<{
       id: number;
@@ -636,13 +726,17 @@ async function searchGithubUsers(query: string): Promise<SearchItem[]> {
     url: item.html_url,
     tags: ["github", "public profile"],
     details: [
-      { label: "Score", value: item.score.toFixed(1) },
-      { label: "Profile", value: item.html_url },
+      { label: dictionary.searchResults.itemLabels.score, value: item.score.toFixed(1) },
+      { label: dictionary.searchResults.itemLabels.profile, value: item.html_url },
     ],
   }));
 }
 
-async function searchGithubExactUser(username: string): Promise<SearchItem[]> {
+async function searchGithubExactUser(
+  username: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   try {
     const item = await fetchJson<{
       login: string;
@@ -666,15 +760,30 @@ async function searchGithubExactUser(username: string): Promise<SearchItem[]> {
         type: "exact-profile",
         title: item.login,
         subtitle: item.type,
-        description: item.bio || "Exact GitHub username match.",
+        description: item.bio || dictionary.searchResults.itemText.exactGithubMatch,
         url: item.html_url,
         tags: ["github", "exact match", "username"],
         details: [
-          { label: "Public repos", value: String(item.public_repos) },
-          { label: "Followers", value: String(item.followers) },
-          { label: "Following", value: String(item.following) },
-          { label: "Company", value: item.company || "Not listed" },
-          { label: "Location", value: item.location || "Not listed" },
+          {
+            label: dictionary.searchResults.itemLabels.publicRepos,
+            value: String(item.public_repos),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.followers,
+            value: String(item.followers),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.following,
+            value: String(item.following),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.company,
+            value: item.company || dictionary.common.notListed,
+          },
+          {
+            label: dictionary.searchResults.itemLabels.location,
+            value: item.location || dictionary.common.notListed,
+          },
         ],
       },
     ];
@@ -683,7 +792,8 @@ async function searchGithubExactUser(username: string): Promise<SearchItem[]> {
   }
 }
 
-async function searchGithubRepos(query: string): Promise<SearchItem[]> {
+async function searchGithubRepos(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const data = await fetchJson<{
     items: Array<{
       id: number;
@@ -706,13 +816,16 @@ async function searchGithubRepos(query: string): Promise<SearchItem[]> {
     source: "GitHub",
     type: "repository",
     title: item.full_name,
-    subtitle: item.language || "Language not specified",
-    description: `${item.description || "No repository description"} • ${item.stargazers_count} stars`,
+    subtitle: item.language || dictionary.searchResults.itemText.languageNotSpecified,
+    description: `${item.description || dictionary.searchResults.itemText.noRepositoryDescription} • ${item.stargazers_count} stars`,
     url: item.html_url,
     tags: ["github", "repository", new Date(item.updated_at).getFullYear().toString()],
     details: [
-      { label: "Stars", value: String(item.stargazers_count) },
-      { label: "Updated", value: new Date(item.updated_at).toLocaleDateString("en") },
+      { label: dictionary.searchResults.itemLabels.stars, value: String(item.stargazers_count) },
+      {
+        label: dictionary.searchResults.itemLabels.updated,
+        value: new Date(item.updated_at).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US"),
+      },
     ],
   }));
 }
@@ -766,7 +879,9 @@ async function buildWaybackSection(
   target: string,
   sectionId: string,
   title: string,
+  locale: Locale,
 ): Promise<SearchSection | null> {
+  const dictionary = getDictionary(locale);
   try {
     const summary = await fetchWaybackSummary(target);
     const items: SearchItem[] = [
@@ -775,16 +890,24 @@ async function buildWaybackSection(
         source: "Wayback Machine",
         type: "archive-summary",
         title: target,
-        subtitle: "Historical web archive coverage",
+        subtitle: dictionary.searchResults.itemText.historicalCoverage,
         description:
           summary.pageCount > 0
-            ? `${summary.pageCount} archive result pages with a latest known snapshot.`
-            : "No substantial archive history was returned for this target.",
+            ? formatMessage(dictionary.searchResults.itemText.archiveHistoryFound, {
+                count: summary.pageCount,
+              })
+            : dictionary.searchResults.itemText.archiveHistoryEmpty,
         url: summary.closestUrl,
         tags: ["archive", "history"],
         details: [
-          { label: "Archive pages", value: String(summary.pageCount) },
-          { label: "Closest capture", value: renderTimestamp(summary.closestTimestamp) },
+          {
+            label: dictionary.searchResults.itemLabels.archivePages,
+            value: String(summary.pageCount),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.closestCapture,
+            value: renderTimestamp(summary.closestTimestamp),
+          },
         ],
       },
       ...summary.captures.map((capture, index) => ({
@@ -793,7 +916,7 @@ async function buildWaybackSection(
         type: "capture",
         title: renderTimestamp(capture.timestamp),
         subtitle: capture.original,
-        description: "Sample preserved snapshot from CDX history.",
+        description: dictionary.searchResults.itemText.sampleSnapshot,
         url: `https://web.archive.org/web/${capture.timestamp}/${capture.original}`,
         tags: ["archive", "capture"],
       })),
@@ -802,7 +925,7 @@ async function buildWaybackSection(
     return {
       id: sectionId,
       title,
-      description: "Internet Archive coverage, latest capture, and historical sample points.",
+      description: dictionary.searchResults.sections.webArchivesDescription,
       items,
     };
   } catch {
@@ -810,7 +933,8 @@ async function buildWaybackSection(
   }
 }
 
-async function searchRdapDomain(domain: string): Promise<SearchItem[]> {
+async function searchRdapDomain(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const data = await fetchJson<{
     ldhName: string;
     status?: string[];
@@ -835,25 +959,32 @@ async function searchRdapDomain(domain: string): Promise<SearchItem[]> {
       source: "RDAP",
       type: "domain-record",
       title: data.ldhName,
-      subtitle: registrarName ? `Registrar: ${registrarName}` : "Registrar data available",
+      subtitle: registrarName ? `Registrar: ${registrarName}` : dictionary.searchResults.itemText.registrarAvailable,
       description: (data.status || []).slice(0, 3).join(" • "),
       url: `https://rdap.org/domain/${encodeURIComponent(domain)}`,
       tags: ["rdap", "domain"],
       details: [
-        { label: "Registered", value: registration?.eventDate || "Unknown" },
-        { label: "Expires", value: expiration?.eventDate || "Unknown" },
         {
-          label: "Nameservers",
+          label: dictionary.searchResults.itemLabels.registered,
+          value: registration?.eventDate || dictionary.common.unknown,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.expires,
+          value: expiration?.eventDate || dictionary.common.unknown,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.nameservers,
           value:
             data.nameservers?.slice(0, 3).map((server) => server.ldhName).filter(Boolean).join(", ") ||
-            "Unknown",
+            dictionary.common.unknown,
         },
       ],
     },
   ];
 }
 
-async function searchDnsRecords(domain: string): Promise<SearchItem[]> {
+async function searchDnsRecords(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const recordTypes = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"] as const;
   const results = await Promise.all(
     recordTypes.map(async (type) => {
@@ -889,13 +1020,20 @@ async function searchDnsRecords(domain: string): Promise<SearchItem[]> {
       url: `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=${record.type}`,
       tags: ["dns", record.type.toLowerCase(), "spiderfoot-class"],
       details: [
-        { label: "Record count", value: String(record.values.length) },
-        { label: "Sample", value: record.values.slice(0, 2).join(" | ") },
+        {
+          label: dictionary.searchResults.itemLabels.recordCount,
+          value: String(record.values.length),
+        },
+        {
+          label: dictionary.searchResults.itemLabels.sample,
+          value: record.values.slice(0, 2).join(" | "),
+        },
       ],
     }));
 }
 
-async function searchWebsiteMetadata(domain: string): Promise<SearchItem[]> {
+async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const httpsUrl = `https://${domain}`;
   const httpUrl = `http://${domain}`;
 
@@ -940,6 +1078,19 @@ async function searchWebsiteMetadata(domain: string): Promise<SearchItem[]> {
     /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i,
   );
   const h1 = extractMatch(html, /<h1[^>]*>([^<]+)<\/h1>/i);
+  const emails = uniqueValues(
+    extractMatches(html, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi),
+  ).slice(0, 4);
+  const phones = uniqueValues(
+    extractMatches(html, /(\+?\d[\d().\s-]{7,}\d)/g),
+  ).slice(0, 4);
+  const socials = uniqueValues(
+    extractMatches(html, /href=["'](https?:\/\/[^"']+)["']/gi).filter((link) =>
+      /(linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|t\.me|github\.com)/i.test(
+        link,
+      ),
+    ),
+  ).slice(0, 4);
 
   const [robotsStatus, sitemapStatus] = await Promise.allSettled([
     fetch(`${origin}/robots.txt`, {
@@ -964,22 +1115,203 @@ async function searchWebsiteMetadata(domain: string): Promise<SearchItem[]> {
       type: "seo-snapshot",
       title: title || finalUrl,
       subtitle: finalUrl,
-      description: description || "No meta description exposed on the homepage.",
+      description: description || dictionary.searchResults.itemText.noMetaDescription,
       url: finalUrl,
       tags: ["seo", "metadata", "homepage"],
       details: [
-        { label: "Title length", value: String((title || "").length) },
-        { label: "Description length", value: String((description || "").length) },
-        { label: "Canonical", value: canonical || "Not declared" },
-        { label: "Primary H1", value: h1 || "Not found" },
-        { label: "robots.txt", value: robotsOk },
-        { label: "sitemap.xml", value: sitemapOk },
+        {
+          label: dictionary.searchResults.itemLabels.titleLength,
+          value: String((title || "").length),
+        },
+        {
+          label: dictionary.searchResults.itemLabels.descriptionLength,
+          value: String((description || "").length),
+        },
+        {
+          label: dictionary.searchResults.itemLabels.canonical,
+          value: canonical || dictionary.common.notDeclared,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.primaryH1,
+          value: h1 || dictionary.common.notFound,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.robotsTxt,
+          value: robotsOk,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.sitemapXml,
+          value: sitemapOk,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.homepageEmails,
+          value: emails.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.homepagePhones,
+          value: phones.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.socialLinks,
+          value: socials.join(", ") || dictionary.common.notFound,
+        },
       ],
     },
   ];
 }
 
-async function searchPhoneIntelligence(input: string): Promise<SearchItem[]> {
+async function searchCertificateTransparency(
+  domain: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+
+  try {
+    const payload = await fetchText(
+      `https://crt.sh/?q=${encodeURIComponent(`%.${domain}`)}&output=json`,
+    );
+    const entries = JSON.parse(payload) as Array<{
+      id: number;
+      name_value?: string;
+      issuer_name?: string;
+      entry_timestamp?: string;
+    }>;
+    const hostnames = uniqueValues(
+      entries
+        .flatMap((entry) => (entry.name_value || "").split("\n"))
+        .map((hostname) => hostname.replace(/^\*\./, "").trim().toLowerCase())
+        .filter((hostname) => hostname.endsWith(domain.toLowerCase())),
+    );
+
+    if (hostnames.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        id: `crtsh-${domain}`,
+        source: "crt.sh",
+        type: "certificate-summary",
+        title: domain,
+        subtitle: "Passive subdomain hints from certificate transparency",
+        description: formatMessage(dictionary.searchResults.itemText.crtSummary, {
+          subdomains: hostnames.length,
+        }),
+        url: `https://crt.sh/?q=${encodeURIComponent(`%.${domain}`)}`,
+        tags: ["crt.sh", "certificate-transparency", "subdomains"],
+        details: [
+          {
+            label: dictionary.searchResults.itemLabels.subdomains,
+            value: String(hostnames.length),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.sample,
+            value: hostnames.slice(0, 5).join(", "),
+          },
+          {
+            label: dictionary.searchResults.itemLabels.latestEntry,
+            value: entries[0]?.entry_timestamp || dictionary.common.unknown,
+          },
+        ],
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+async function searchSecurityTxt(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const candidates = [
+    `https://${domain}/.well-known/security.txt`,
+    `https://${domain}/security.txt`,
+    `http://${domain}/.well-known/security.txt`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const content = await fetchText(url);
+      const contacts = uniqueValues(
+        Array.from(content.matchAll(/^Contact:\s*(.+)$/gim)).map((match) => match[1].trim()),
+      );
+      const policies = uniqueValues(
+        Array.from(content.matchAll(/^Policy:\s*(.+)$/gim)).map((match) => match[1].trim()),
+      );
+      const hiring = uniqueValues(
+        Array.from(content.matchAll(/^Hiring:\s*(.+)$/gim)).map((match) => match[1].trim()),
+      );
+
+      return [
+        {
+          id: `securitytxt-${domain}`,
+          source: "security.txt",
+          type: "security-contact",
+          title: domain,
+          subtitle: url,
+          description: dictionary.searchResults.itemText.securityTxtPresent,
+          url,
+          tags: ["security.txt", "contact", "disclosure"],
+          details: [
+            {
+              label: dictionary.searchResults.itemLabels.contacts,
+              value: contacts.join(", ") || dictionary.common.notFound,
+            },
+            {
+              label: dictionary.searchResults.itemLabels.policy,
+              value: policies.join(", ") || dictionary.common.notFound,
+            },
+            {
+              label: dictionary.searchResults.itemLabels.hiring,
+              value: hiring.join(", ") || dictionary.common.notFound,
+            },
+          ],
+        },
+      ];
+    } catch {
+      // continue to the next candidate
+    }
+  }
+
+  return [];
+}
+
+async function searchWikidataEntities(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const language = locale === "ru" ? "ru" : "en";
+  const data = await fetchJson<{
+    search?: Array<{
+      id: string;
+      label?: string;
+      description?: string;
+      concepturi?: string;
+      match?: { language?: string };
+    }>;
+  }>(
+    `https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&limit=6&language=${language}&uselang=${language}&search=${encodeURIComponent(
+      query,
+    )}`,
+  );
+
+  return (data.search || []).map((item) => ({
+    id: item.id,
+    source: "Wikidata",
+    type: "entity-reference",
+    title: item.label || item.id,
+    subtitle: item.description || dictionary.searchResults.itemText.wikidataMatch,
+    description: dictionary.searchResults.itemText.wikidataMatch,
+    url: item.concepturi?.replace("http://", "https://"),
+    tags: ["wikidata", "entity", "public knowledge"],
+    details: [
+      {
+        label: dictionary.searchResults.itemLabels.language,
+        value: item.match?.language || dictionary.common.notSpecified,
+      },
+    ],
+  }));
+}
+
+async function searchPhoneIntelligence(input: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const parsed = parsePhoneNumberFromString(input);
 
   if (!parsed) {
@@ -992,19 +1324,40 @@ async function searchPhoneIntelligence(input: string): Promise<SearchItem[]> {
       source: "Phone Intelligence",
       type: "normalized-phone",
       title: parsed.number,
-      subtitle: parsed.country || "Country unresolved",
+      subtitle: parsed.country || dictionary.searchResults.itemText.countryUnresolved,
       description: parsed.isValid()
-        ? "Phone number parsed and validated against numbering metadata."
-        : "Phone number parsed but did not fully validate against numbering metadata.",
+        ? dictionary.searchResults.itemText.phoneValid
+        : dictionary.searchResults.itemText.phoneInvalid,
       tags: ["phone", "e164", "normalized"],
       details: [
-        { label: "International", value: parsed.formatInternational() },
-        { label: "National", value: parsed.formatNational() },
-        { label: "Country", value: parsed.country || "Unknown" },
-        { label: "Calling code", value: `+${parsed.countryCallingCode}` },
-        { label: "Possible", value: parsed.isPossible() ? "Yes" : "No" },
-        { label: "Valid", value: parsed.isValid() ? "Yes" : "No" },
-        { label: "Type", value: parsed.getType() || "Unknown" },
+        {
+          label: dictionary.searchResults.itemLabels.international,
+          value: parsed.formatInternational(),
+        },
+        {
+          label: dictionary.searchResults.itemLabels.national,
+          value: parsed.formatNational(),
+        },
+        {
+          label: dictionary.searchResults.itemLabels.country,
+          value: parsed.country || dictionary.common.unknown,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.callingCode,
+          value: `+${parsed.countryCallingCode}`,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.possible,
+          value: parsed.isPossible() ? dictionary.common.yes : dictionary.common.no,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.valid,
+          value: parsed.isValid() ? dictionary.common.yes : dictionary.common.no,
+        },
+        {
+          label: dictionary.searchResults.itemLabels.phoneType,
+          value: parsed.getType() || dictionary.common.unknown,
+        },
       ],
     },
   ];
@@ -1040,17 +1393,33 @@ async function searchPhoneIntelligence(input: string): Promise<SearchItem[]> {
         subtitle: "Official Twilio Lookup",
         description:
           typeof lookup.valid === "boolean"
-            ? `Twilio marked this number as ${lookup.valid ? "valid" : "invalid"}.`
-            : "Twilio lookup returned a normalization result.",
+            ? lookup.valid
+              ? dictionary.searchResults.itemText.twilioValid
+              : dictionary.searchResults.itemText.twilioInvalid
+            : dictionary.searchResults.itemText.twilioNormalized,
         url: lookup.url,
         tags: ["phone", "twilio", "official api"],
         details: [
-          { label: "Country", value: lookup.country_code || "Unknown" },
-          { label: "Calling code", value: lookup.calling_country_code || "Unknown" },
-          { label: "National format", value: lookup.national_format || "Unknown" },
           {
-            label: "Valid",
-            value: typeof lookup.valid === "boolean" ? (lookup.valid ? "Yes" : "No") : "Unknown",
+            label: dictionary.searchResults.itemLabels.country,
+            value: lookup.country_code || dictionary.common.unknown,
+          },
+          {
+            label: dictionary.searchResults.itemLabels.callingCode,
+            value: lookup.calling_country_code || dictionary.common.unknown,
+          },
+          {
+            label: dictionary.searchResults.itemLabels.nationalFormat,
+            value: lookup.national_format || dictionary.common.unknown,
+          },
+          {
+            label: dictionary.searchResults.itemLabels.valid,
+            value:
+              typeof lookup.valid === "boolean"
+                ? lookup.valid
+                  ? dictionary.common.yes
+                  : dictionary.common.no
+                : dictionary.common.unknown,
           },
         ],
       });
@@ -1113,16 +1482,25 @@ async function probeProfile(url: string): Promise<number> {
   return response.status;
 }
 
-async function searchUsernameFootprint(username: string): Promise<SearchItem[]> {
+async function searchUsernameFootprint(
+  username: string,
+  locale: Locale,
+): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
   const normalized = canonicalizeUsername(username);
   const candidates = [
     { platform: "GitHub", url: `https://github.com/${normalized}` },
     { platform: "GitLab", url: `https://gitlab.com/${normalized}` },
+    { platform: "Bitbucket", url: `https://bitbucket.org/${normalized}` },
     { platform: "DEV", url: `https://dev.to/${normalized}` },
     { platform: "Keybase", url: `https://keybase.io/${normalized}` },
     { platform: "Telegram", url: `https://t.me/${normalized}` },
     { platform: "Hugging Face", url: `https://huggingface.co/${normalized}` },
     { platform: "Buy Me a Coffee", url: `https://buymeacoffee.com/${normalized}` },
+    { platform: "Medium", url: `https://medium.com/@${normalized}` },
+    { platform: "Reddit", url: `https://www.reddit.com/user/${normalized}` },
+    { platform: "npm", url: `https://www.npmjs.com/~${normalized}` },
+    { platform: "Docker Hub", url: `https://hub.docker.com/u/${normalized}` },
   ];
 
   const probes = await Promise.allSettled(
@@ -1162,17 +1540,23 @@ async function searchUsernameFootprint(username: string): Promise<SearchItem[]> 
       type: "profile-hit",
       title: probe.platform,
       subtitle: probe.url,
-      description: `Public profile route responded with status ${probe.status}.`,
+      description: formatMessage(dictionary.searchResults.itemText.usernameProfileHit, {
+        status: probe.status,
+      }),
       url: probe.url,
       tags: ["username", "profile", "sherlock-class"],
       details: [
         { label: "HTTP status", value: String(probe.status) },
-        { label: "Wayback pages", value: String(probe.archivedPages || 0) },
+        {
+          label: dictionary.searchResults.itemLabels.waybackPages,
+          value: String(probe.archivedPages || 0),
+        },
       ],
     }));
 }
 
-function recommendedConnectors(kind: QueryKind) {
+function recommendedConnectors(kind: QueryKind, locale: Locale) {
+  const dictionary = getDictionary(locale);
   return connectorCatalog
     .filter((connector) => connector.queryKinds.includes(kind))
     .sort((a, b) => {
@@ -1185,11 +1569,20 @@ function recommendedConnectors(kind: QueryKind) {
       source: connector.category,
       type: connector.status,
       title: connector.name,
-      subtitle: connector.status.replace("_", " "),
+      subtitle:
+        connector.status === "live"
+          ? dictionary.sourcesPage.live
+          : connector.status === "ready"
+            ? dictionary.sourcesPage.ready
+            : connector.status === "requires_key"
+              ? dictionary.sourcesPage.requiresKey
+              : dictionary.sourcesPage.manual,
       description: connector.description,
       url: connector.officialUrl,
       tags: connector.queryKinds,
-      details: connector.notes ? [{ label: "Operator note", value: connector.notes }] : [],
+      details: connector.notes
+        ? [{ label: dictionary.searchResults.itemLabels.operatorNote, value: connector.notes }]
+        : [],
     }));
 }
 
@@ -1214,13 +1607,17 @@ function addSection(
   });
 }
 
-export async function runUnifiedSearch(query: string): Promise<SearchRun> {
+export async function runUnifiedSearch(
+  query: string,
+  locale: Locale = "en",
+): Promise<SearchRun> {
+  const dictionary = getDictionary(locale);
   const inferredType = inferQueryKind(query);
   const normalizedQuery = query.trim();
   const sections: SearchSection[] = [];
   const warnings: string[] = [
-    "Results are sourced only from lawful public endpoints and curated open-source workflows.",
-    "Treat all matches as analyst leads that still need verification before any real-world action.",
+    dictionary.searchResults.warnings.lawful,
+    dictionary.searchResults.warnings.verify,
   ];
   const usedSources = new Set<string>();
   const tasks: Array<Promise<void>> = [];
@@ -1228,22 +1625,20 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
   if (inferredType === "phone") {
     tasks.push(
       (async () => {
-        const items = await searchPhoneIntelligence(normalizedQuery);
+        const items = await searchPhoneIntelligence(normalizedQuery, locale);
         addSection(
           sections,
           usedSources,
           "Phone Intelligence",
-          "Phone Intelligence",
-          "Normalization, telecom metadata, and optional official lookup.",
+          dictionary.searchResults.sections.phoneIntelligenceTitle,
+          dictionary.searchResults.sections.phoneIntelligenceDescription,
           items,
         );
       })(),
     );
 
     if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
-      warnings.push(
-        "Twilio Lookup is wired as an optional official connector. Add TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to activate live phone lookup.",
-      );
+      warnings.push(dictionary.searchResults.warnings.twilioMissing);
     }
 
     tasks.push(
@@ -1251,7 +1646,8 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
         const section = await buildWaybackSection(
           normalizedQuery,
           "wayback-phone",
-          "Archive Footprint",
+          dictionary.searchResults.sections.archiveFootprintTitle,
+          locale,
         );
         if (section) {
           usedSources.add("Wayback Machine");
@@ -1264,13 +1660,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
   if (inferredType === "company" || inferredType === "keyword") {
     tasks.push(
       (async () => {
-        const items = await searchGleifCompanies(normalizedQuery);
+        const items = await searchGleifCompanies(normalizedQuery, locale);
         addSection(
           sections,
           usedSources,
           "GLEIF",
-          "Registry Matches",
-          "Official corporate records from GLEIF LEI data.",
+          dictionary.searchResults.sections.registryMatchesTitle,
+          dictionary.searchResults.sections.registryMatchesDescription,
           items,
         );
       })(),
@@ -1278,13 +1674,29 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const items = await searchSecCompanies(normalizedQuery);
+        const items = await searchSecCompanies(normalizedQuery, locale);
         addSection(
           sections,
           usedSources,
           "SEC",
-          "Public Company Signals",
-          "Official SEC issuer references and ticker matches.",
+          dictionary.searchResults.sections.publicCompanySignalsTitle,
+          dictionary.searchResults.sections.publicCompanySignalsDescription,
+          items,
+        );
+      })(),
+    );
+  }
+
+  if (inferredType === "company" || inferredType === "person" || inferredType === "keyword") {
+    tasks.push(
+      (async () => {
+        const items = await searchWikidataEntities(normalizedQuery, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Wikidata",
+          dictionary.searchResults.sections.personCompanyKnowledgeTitle,
+          dictionary.searchResults.sections.personCompanyKnowledgeDescription,
           items,
         );
       })(),
@@ -1302,17 +1714,17 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
         const items =
           inferredType === "username"
             ? [
-                ...(await searchGithubExactUser(normalizedQuery)),
-                ...(await searchGithubUsers(canonicalizeUsername(normalizedQuery))),
+                ...(await searchGithubExactUser(normalizedQuery, locale)),
+                ...(await searchGithubUsers(canonicalizeUsername(normalizedQuery), locale)),
               ]
-            : await searchGithubUsers(normalizedQuery);
+            : await searchGithubUsers(normalizedQuery, locale);
 
         addSection(
           sections,
           usedSources,
           "GitHub",
-          "GitHub Profiles",
-          "Public users and organizations related to the query.",
+          dictionary.searchResults.sections.githubProfilesTitle,
+          dictionary.searchResults.sections.githubProfilesDescription,
           items,
         );
       })(),
@@ -1332,13 +1744,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
           inferredType === "repository"
             ? normalizedQuery.replace(/^https?:\/\/github\.com\//, "")
             : normalizedQuery;
-        const items = await searchGithubRepos(githubRepoQuery);
+        const items = await searchGithubRepos(githubRepoQuery, locale);
         addSection(
           sections,
           usedSources,
           "GitHub Repository Search",
-          "GitHub Repositories",
-          "Recent public repositories and code footprints related to the query.",
+          dictionary.searchResults.sections.githubReposTitle,
+          dictionary.searchResults.sections.githubReposDescription,
           items,
         );
       })(),
@@ -1353,17 +1765,15 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
           sections,
           usedSources,
           "Crunchbase",
-          "Crunchbase Matches",
-          "Company and people intelligence from the official Crunchbase API when configured.",
+          dictionary.searchResults.sections.crunchbaseTitle,
+          dictionary.searchResults.sections.crunchbaseDescription,
           items,
         );
       })(),
     );
 
     if (!process.env.CRUNCHBASE_API_KEY) {
-      warnings.push(
-        "Crunchbase is wired as an optional official connector. Add CRUNCHBASE_API_KEY to activate it.",
-      );
+      warnings.push(dictionary.searchResults.warnings.crunchbaseMissing);
     }
   }
 
@@ -1372,13 +1782,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const items = await searchRdapDomain(domain);
+        const items = await searchRdapDomain(domain, locale);
         addSection(
           sections,
           usedSources,
           "RDAP",
-          "Domain Registration",
-          "Registrar, lifecycle, and nameserver information.",
+          dictionary.searchResults.sections.domainRegistrationTitle,
+          dictionary.searchResults.sections.domainRegistrationDescription,
           items,
         );
       })(),
@@ -1386,13 +1796,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const items = await searchDnsRecords(domain);
+        const items = await searchDnsRecords(domain, locale);
         addSection(
           sections,
           usedSources,
           "Cloudflare DoH",
-          "DNS Footprint",
-          "DNS records for technical footprinting and SpiderFoot-style pivots.",
+          dictionary.searchResults.sections.dnsFootprintTitle,
+          dictionary.searchResults.sections.dnsFootprintDescription,
           items,
         );
       })(),
@@ -1400,13 +1810,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const items = await searchWebsiteMetadata(domain);
+        const items = await searchWebsiteMetadata(domain, locale);
         addSection(
           sections,
           usedSources,
           "Website Metadata",
-          "Website Metadata and SEO",
-          "Homepage metadata, canonical, and crawl surface indicators.",
+          dictionary.searchResults.sections.webMetadataTitle,
+          dictionary.searchResults.sections.webMetadataDescription,
           items,
         );
       })(),
@@ -1414,7 +1824,40 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const section = await buildWaybackSection(domain, "wayback-domain", "Web Archives");
+        const items = await searchCertificateTransparency(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "crt.sh",
+          dictionary.searchResults.sections.transparencyTitle,
+          dictionary.searchResults.sections.transparencyDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchSecurityTxt(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "security.txt",
+          dictionary.searchResults.sections.securityTxtTitle,
+          dictionary.searchResults.sections.securityTxtDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const section = await buildWaybackSection(
+          domain,
+          "wayback-domain",
+          dictionary.searchResults.sections.webArchivesTitle,
+          locale,
+        );
         if (section) {
           usedSources.add("Wayback Machine");
           sections.push(section);
@@ -1428,13 +1871,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
-        const items = await searchUsernameFootprint(username);
+        const items = await searchUsernameFootprint(username, locale);
         addSection(
           sections,
           usedSources,
           "Username Pivot",
-          "Username Footprint",
-          "Deployable, Sherlock-class profile pivots across a curated public set.",
+          dictionary.searchResults.sections.usernameFootprintTitle,
+          dictionary.searchResults.sections.usernameFootprintDescription,
           items,
         );
       })(),
@@ -1445,7 +1888,8 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
         const section = await buildWaybackSection(
           normalizedQuery,
           "wayback-username",
-          "Username Archive Trails",
+          dictionary.searchResults.sections.usernameArchiveTitle,
+          locale,
         );
         if (section) {
           usedSources.add("Wayback Machine");
@@ -1456,7 +1900,7 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
   }
 
   for (const config of bridgeConfigs) {
-    if (!config.queryKinds.includes(inferredType)) {
+    if (!config.queryKinds.includes(inferredType) || !process.env[config.urlEnv]) {
       continue;
     }
 
@@ -1469,12 +1913,6 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
         }
       })(),
     );
-
-    if (!process.env[config.urlEnv]) {
-      warnings.push(
-        `${config.name} is bridge-ready but not live yet. Set ${config.urlEnv} to connect your self-hosted worker.`,
-      );
-    }
   }
 
   const settled = await Promise.allSettled(tasks);
@@ -1483,17 +1921,16 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
       warnings.push(
         result.reason instanceof Error
           ? result.reason.message
-          : "One of the live sources failed during execution.",
+          : dictionary.searchResults.warnings.sourceFailed,
       );
     }
   }
 
   sections.push({
     id: "recommended",
-    title: "Recommended Next Sources",
-    description:
-      "Curated OSINT connectors and workflows to continue the investigation without leaving the workbench logic.",
-    items: recommendedConnectors(inferredType),
+    title: dictionary.searchResults.sections.recommendedTitle,
+    description: dictionary.searchResults.sections.recommendedDescription,
+    items: recommendedConnectors(inferredType, locale),
   });
 
   const totalResults = sections.reduce((count, section) => count + section.items.length, 0);
@@ -1504,10 +1941,13 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
     query: normalizedQuery,
     inferredType,
     summary: [
-      { label: "Query Type", value: toTitleCase(inferredType) },
-      { label: "Live Sources", value: String(liveSourcesUsed.length) },
-      { label: "Result Cards", value: String(totalResults) },
-      { label: "Signal Sections", value: String(signalCount) },
+      {
+        label: dictionary.searchResults.summary.queryType,
+        value: humanizeQueryKind(inferredType, locale),
+      },
+      { label: dictionary.searchResults.summary.liveSources, value: String(liveSourcesUsed.length) },
+      { label: dictionary.searchResults.summary.resultCards, value: String(totalResults) },
+      { label: dictionary.searchResults.summary.signalSections, value: String(signalCount) },
     ],
     warnings,
     sections,

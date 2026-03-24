@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { requireUser } from "@/lib/auth";
 import { type ActionState, type SearchActionState } from "@/lib/form-state";
+import { formatMessage, getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { runUnifiedSearch, type SearchRun } from "@/lib/osint/catalog";
 import { prisma } from "@/lib/prisma";
 import { ensureUserCanSearch, incrementUserSearchUsage } from "@/lib/quotas";
@@ -14,19 +16,21 @@ export async function runSearchAction(
   formData: FormData,
 ): Promise<SearchActionState<SearchRun>> {
   const user = await requireUser();
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
   const query = String(formData.get("query") || "").trim();
 
   if (!query) {
     return {
       status: "error",
-      message: "Enter a company, domain, username, repository, person, or keyword.",
+      message: dictionary.actionMessages.queryRequired,
       result: null,
     };
   }
 
   try {
     await ensureUserCanSearch(user.id);
-    const result = await runUnifiedSearch(query);
+    const result = await runUnifiedSearch(query, locale);
     await incrementUserSearchUsage(user.id);
 
     await prisma.queryLog.create({
@@ -48,7 +52,9 @@ export async function runSearchAction(
 
     return {
       status: "success",
-      message: `Search completed across ${result.usedSources.length || 0} live sources.`,
+      message: formatMessage(dictionary.actionMessages.searchCompleted, {
+        count: result.usedSources.length || 0,
+      }),
       result,
     };
   } catch (error) {
@@ -65,7 +71,8 @@ export async function runSearchAction(
 
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Search failed.",
+      message:
+        error instanceof Error ? error.message : dictionary.actionMessages.searchFailed,
       result: null,
     };
   }
@@ -76,6 +83,7 @@ export async function saveDossierAction(
   formData: FormData,
 ): Promise<ActionState> {
   const user = await requireUser();
+  const dictionary = getDictionary(await getLocale());
   const title = String(formData.get("title") || "").trim();
   const description = String(formData.get("description") || "").trim();
   const snapshot = String(formData.get("snapshot") || "");
@@ -83,7 +91,7 @@ export async function saveDossierAction(
   if (!title || !snapshot) {
     return {
       status: "error",
-      message: "A title and search snapshot are required to save a dossier.",
+      message: dictionary.actionMessages.dossierRequired,
     };
   }
 
@@ -106,6 +114,6 @@ export async function saveDossierAction(
 
   return {
     status: "success",
-    message: "Dossier saved to your cabinet.",
+    message: dictionary.actionMessages.dossierSaved,
   };
 }

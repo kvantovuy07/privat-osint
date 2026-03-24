@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 
 import { loginAction, requestAccessAction } from "@/actions/auth";
+import { useLocale } from "@/components/locale-provider";
 import { PendingButton } from "@/components/pending-button";
 import { emptyActionState } from "@/lib/form-state";
 
@@ -72,12 +73,13 @@ function Input({
 
 export function LoginForm() {
   const [state, formAction] = useActionState(loginAction, emptyActionState);
+  const { dictionary } = useLocale();
 
   return (
     <form action={formAction} className="grid gap-4">
-      <Input label="Login" name="username" required placeholder="Mentor" />
+      <Input label={dictionary.loginForm.login} name="username" required placeholder="Mentor" />
       <Input
-        label="Password"
+        label={dictionary.loginForm.password}
         name="password"
         type="password"
         required
@@ -85,15 +87,15 @@ export function LoginForm() {
       />
       <StatusMessage status={state.status} message={state.message} />
       <PendingButton
-        label="Enter Console"
-        pendingLabel="Authorizing..."
+        label={dictionary.loginForm.enter}
+        pendingLabel={dictionary.loginForm.authorizing}
         className="rounded-2xl bg-emerald-400 px-4 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
       />
       <Link
         href="/request-access"
         className="text-center text-sm text-emerald-200/80 transition hover:text-emerald-100"
       >
-        Подать заявку на доступ
+        {dictionary.loginForm.requestAccess}
       </Link>
     </form>
   );
@@ -104,36 +106,61 @@ export function AccessRequestForm() {
     requestAccessAction,
     emptyActionState,
   );
+  const { dictionary } = useLocale();
 
   return (
     <form action={formAction} className="grid gap-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <Input label="Name" name="name" required placeholder="Name or alias" />
         <Input
-          label="Requested login"
+          label={dictionary.accessForm.name}
+          name="name"
+          required
+          placeholder={dictionary.accessForm.namePlaceholder}
+        />
+        <Input
+          label={dictionary.accessForm.requestedLogin}
           name="requestedUsername"
           required
-          placeholder="future username"
+          placeholder={dictionary.accessForm.loginPlaceholder}
         />
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Input label="Email" name="email" type="email" required placeholder="name@company.com" />
-        <Input label="Telegram / contact" name="contact" placeholder="@handle or contact" />
+        <Input
+          label={dictionary.accessForm.email}
+          name="email"
+          type="email"
+          required
+          placeholder={dictionary.accessForm.emailPlaceholder}
+        />
+        <Input
+          label={dictionary.accessForm.contact}
+          name="contact"
+          placeholder={dictionary.accessForm.contactPlaceholder}
+        />
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Input label="Company / project" name="company" placeholder="Optional" />
-        <Input label="Reason" name="reason" required placeholder="Why access is needed" />
+        <Input
+          label={dictionary.accessForm.company}
+          name="company"
+          placeholder={dictionary.accessForm.companyPlaceholder}
+        />
+        <Input
+          label={dictionary.accessForm.reason}
+          name="reason"
+          required
+          placeholder={dictionary.accessForm.reasonPlaceholder}
+        />
       </div>
       <Input
-        label="Comment"
+        label={dictionary.accessForm.comment}
         name="comment"
         rows={4}
-        placeholder="Scope, expected usage, and any extra context"
+        placeholder={dictionary.accessForm.commentPlaceholder}
       />
       <StatusMessage status={state.status} message={state.message} />
       <PendingButton
-        label="Submit Access Request"
-        pendingLabel="Submitting..."
+        label={dictionary.accessForm.submit}
+        pendingLabel={dictionary.accessForm.submitting}
         className="rounded-2xl bg-emerald-400 px-4 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </form>

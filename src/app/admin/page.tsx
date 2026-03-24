@@ -6,10 +6,15 @@ import {
   ReviewRequestForm,
   UpdateUserForm,
 } from "@/components/admin-forms";
+import { getDateLocale, getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { formatDate } from "@/lib/time";
 
 export default async function AdminPage() {
   const admin = await requireAdmin();
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
+  const dateLocale = getDateLocale(locale);
 
   const [pendingRequests, users, auditLogs, queryLogs] = await Promise.all([
     prisma.accessRequest.findMany({
@@ -39,8 +44,9 @@ export default async function AdminPage() {
   return (
     <AppShell
       current="admin"
-      title="Administrator Cabinet"
-      subtitle="Approve or reject access requests, provision analysts, edit quotas, and watch the operational audit trail from one private console."
+      currentPath="/admin"
+      title={dictionary.adminPage.title}
+      subtitle={dictionary.adminPage.subtitle}
       user={admin}
       pendingRequestsCount={pendingRequests.length}
     >
@@ -51,17 +57,14 @@ export default async function AdminPage() {
           <section className="panel grid gap-4">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
-                Access Requests
+                {dictionary.adminPage.accessRequests}
               </p>
               <h2 className="text-2xl font-semibold text-white">
-                Pending approval: {pendingRequests.length}
+                {dictionary.adminPage.pendingApproval}: {pendingRequests.length}
               </h2>
             </div>
             {pendingRequests.length === 0 ? (
-              <p className="text-sm text-zinc-400">
-                No pending access requests. New submissions will appear here and can be approved
-                into real user accounts.
-              </p>
+              <p className="text-sm text-zinc-400">{dictionary.adminPage.noPending}</p>
             ) : (
               <div className="grid gap-4">
                 {pendingRequests.map((request) => (
@@ -74,26 +77,30 @@ export default async function AdminPage() {
 
         <section className="panel grid gap-4">
           <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">Users</p>
-            <h2 className="text-2xl font-semibold text-white">Accounts and quotas</h2>
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
+              {dictionary.adminPage.users}
+            </p>
+            <h2 className="text-2xl font-semibold text-white">
+              {dictionary.adminPage.accountsAndQuotas}
+            </h2>
           </div>
           <div className="grid gap-4">
             {users.map((user) => (
               <div key={user.id} className="grid gap-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-                  <span>Created {formatDate(user.createdAt)}</span>
-                  <span>Expires {formatDate(user.accessExpiresAt)}</span>
+                  <span>{dictionary.common.created} {formatDate(user.createdAt, dateLocale)}</span>
+                  <span>{dictionary.common.expires} {formatDate(user.accessExpiresAt, dateLocale)}</span>
                   <span>
-                    Monthly {user.queryUsedMonthly}
+                    {dictionary.adminPage.monthly} {user.queryUsedMonthly}
                     {typeof user.queryLimitMonthly === "number"
                       ? ` / ${user.queryLimitMonthly}`
-                      : " / unlimited"}
+                      : ` / ${dictionary.common.unlimited}`}
                   </span>
                   <span>
-                    Total {user.queryUsedTotal}
+                    {dictionary.adminPage.total} {user.queryUsedTotal}
                     {typeof user.queryLimitTotal === "number"
                       ? ` / ${user.queryLimitTotal}`
-                      : " / unlimited"}
+                      : ` / ${dictionary.common.unlimited}`}
                   </span>
                 </div>
                 <UpdateUserForm user={user} />
@@ -105,8 +112,12 @@ export default async function AdminPage() {
         <div className="grid gap-6 xl:grid-cols-2">
           <section className="panel grid gap-4">
             <div className="space-y-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">Audit</p>
-              <h2 className="text-2xl font-semibold text-white">Recent admin and auth events</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
+                {dictionary.adminPage.audit}
+              </p>
+              <h2 className="text-2xl font-semibold text-white">
+                {dictionary.adminPage.recentEvents}
+              </h2>
             </div>
             <div className="grid gap-3">
               {auditLogs.map((log) => (
@@ -117,15 +128,15 @@ export default async function AdminPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium text-white">{log.action}</p>
                     <span className="text-xs text-zinc-500">
-                      {new Intl.DateTimeFormat("en", {
+                      {new Intl.DateTimeFormat(dateLocale, {
                         dateStyle: "medium",
                         timeStyle: "short",
                       }).format(log.createdAt)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-zinc-400">
-                    Actor: {log.actorUser?.username || "system"}
-                    {log.targetUser ? ` • Target: ${log.targetUser.username}` : ""}
+                    {dictionary.common.actor}: {log.actorUser?.username || dictionary.common.system}
+                    {log.targetUser ? ` • ${dictionary.common.target}: ${log.targetUser.username}` : ""}
                   </p>
                   {log.details ? (
                     <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-zinc-300">
@@ -139,8 +150,12 @@ export default async function AdminPage() {
 
           <section className="panel grid gap-4">
             <div className="space-y-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">Usage</p>
-              <h2 className="text-2xl font-semibold text-white">Recent searches</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">
+                {dictionary.adminPage.usage}
+              </p>
+              <h2 className="text-2xl font-semibold text-white">
+                {dictionary.adminPage.recentSearches}
+              </h2>
             </div>
             <div className="grid gap-3">
               {queryLogs.map((log) => (
@@ -151,17 +166,17 @@ export default async function AdminPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium text-white">{log.query}</p>
                     <span className="text-xs text-zinc-500">
-                      {new Intl.DateTimeFormat("en", {
+                      {new Intl.DateTimeFormat(dateLocale, {
                         dateStyle: "medium",
                         timeStyle: "short",
                       }).format(log.createdAt)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-zinc-400">
-                    User: {log.user.username} • Type: {log.inferredType} • Results: {log.resultCount}
+                    {dictionary.common.user}: {log.user.username} • {dictionary.common.type}: {log.inferredType} • {dictionary.common.resultsSuffix}: {log.resultCount}
                   </p>
                   <p className="mt-2 text-sm text-zinc-500">
-                    Sources: {log.sources || "No live sources"}
+                    {dictionary.common.sources}: {log.sources || dictionary.common.noLiveSources}
                   </p>
                 </article>
               ))}

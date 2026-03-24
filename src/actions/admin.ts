@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { hashPassword, requireAdmin } from "@/lib/auth";
 import { type ActionState } from "@/lib/form-state";
+import { formatMessage, getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { parseOptionalDate } from "@/lib/time";
 
@@ -29,6 +31,7 @@ export async function createUserAction(
   formData: FormData,
 ): Promise<ActionState> {
   const admin = await requireAdmin();
+  const dictionary = getDictionary(await getLocale());
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
   const name = String(formData.get("name") || "").trim();
@@ -41,7 +44,7 @@ export async function createUserAction(
   if (!username || !password) {
     return {
       status: "error",
-      message: "Username and password are required.",
+      message: dictionary.actionMessages.usernamePasswordRequired,
     };
   }
 
@@ -73,12 +76,12 @@ export async function createUserAction(
 
     return {
       status: "success",
-      message: `User ${username} created.`,
+      message: formatMessage(dictionary.actionMessages.userCreated, { username }),
     };
   } catch {
     return {
       status: "error",
-      message: "Could not create the user. The username or email may already exist.",
+      message: dictionary.actionMessages.userCreateFailed,
     };
   }
 }
@@ -88,6 +91,7 @@ export async function updateUserAction(
   formData: FormData,
 ): Promise<ActionState> {
   const admin = await requireAdmin();
+  const dictionary = getDictionary(await getLocale());
   const userId = String(formData.get("userId") || "");
   const password = String(formData.get("password") || "");
   const name = String(formData.get("name") || "").trim();
@@ -101,7 +105,7 @@ export async function updateUserAction(
   if (!userId) {
     return {
       status: "error",
-      message: "User ID is missing.",
+      message: dictionary.actionMessages.userIdMissing,
     };
   }
 
@@ -145,12 +149,14 @@ export async function updateUserAction(
 
     return {
       status: "success",
-      message: `Updated ${updatedUser.username}.`,
+      message: formatMessage(dictionary.actionMessages.userUpdated, {
+        username: updatedUser.username,
+      }),
     };
   } catch {
     return {
       status: "error",
-      message: "Could not update this user.",
+      message: dictionary.actionMessages.userUpdateFailed,
     };
   }
 }
@@ -160,6 +166,7 @@ export async function reviewAccessRequestAction(
   formData: FormData,
 ): Promise<ActionState> {
   const admin = await requireAdmin();
+  const dictionary = getDictionary(await getLocale());
   const accessRequestId = String(formData.get("accessRequestId") || "");
   const decision = String(formData.get("decision") || "");
   const reviewNote = String(formData.get("reviewNote") || "").trim();
@@ -167,7 +174,7 @@ export async function reviewAccessRequestAction(
   if (!accessRequestId || !decision) {
     return {
       status: "error",
-      message: "Request and decision are required.",
+      message: dictionary.actionMessages.requestDecisionRequired,
     };
   }
 
@@ -178,7 +185,7 @@ export async function reviewAccessRequestAction(
   if (!accessRequest) {
     return {
       status: "error",
-      message: "Access request not found.",
+      message: dictionary.actionMessages.accessRequestNotFound,
     };
   }
 
@@ -204,7 +211,9 @@ export async function reviewAccessRequestAction(
 
     return {
       status: "success",
-      message: `Rejected ${accessRequest.requestedUsername}.`,
+      message: formatMessage(dictionary.actionMessages.accessRequestRejected, {
+        username: accessRequest.requestedUsername,
+      }),
     };
   }
 
@@ -219,7 +228,7 @@ export async function reviewAccessRequestAction(
   if (!username || !password) {
     return {
       status: "error",
-      message: "Approval requires a username and password.",
+      message: dictionary.actionMessages.approvalRequiresCredentials,
     };
   }
 
@@ -263,12 +272,14 @@ export async function reviewAccessRequestAction(
 
     return {
       status: "success",
-      message: `Approved ${username} and created the account.`,
+      message: formatMessage(dictionary.actionMessages.accessRequestApproved, {
+        username,
+      }),
     };
   } catch {
     return {
       status: "error",
-      message: "Could not approve the request. The username or email may already exist.",
+      message: dictionary.actionMessages.accessRequestApprovalFailed,
     };
   }
 }

@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import { Azeret_Mono, Space_Grotesk } from "next/font/google";
+
+import { LocaleProvider } from "@/components/locale-provider";
+import { getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
+
 import "./globals.css";
 
 const display = Space_Grotesk({
@@ -17,17 +22,24 @@ export const metadata: Metadata = {
   description: "Private OSINT workspace for lawful corporate intelligence and B2B signal mapping.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
+
   return (
     <html
-      lang="en"
+      lang={locale}
       className={`${display.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <LocaleProvider locale={locale} dictionary={dictionary}>
+          {children}
+        </LocaleProvider>
+      </body>
     </html>
   );
 }

@@ -12,6 +12,8 @@ import {
 } from "@/lib/auth";
 import { ensureSeedAdmin } from "@/lib/ensure-seed-admin";
 import { type ActionState } from "@/lib/form-state";
+import { getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 
 export async function loginAction(
@@ -19,6 +21,7 @@ export async function loginAction(
   formData: FormData,
 ): Promise<ActionState> {
   await ensureSeedAdmin();
+  const dictionary = getDictionary(await getLocale());
 
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
@@ -26,7 +29,7 @@ export async function loginAction(
   if (!username || !password) {
     return {
       status: "error",
-      message: "Username and password are required.",
+      message: dictionary.actionMessages.usernamePasswordRequired,
     };
   }
 
@@ -42,21 +45,21 @@ export async function loginAction(
 
     return {
       status: "error",
-      message: "Invalid credentials.",
+      message: dictionary.actionMessages.invalidCredentials,
     };
   }
 
   if (!user.isActive) {
     return {
       status: "error",
-      message: "This account is disabled.",
+      message: dictionary.actionMessages.accountDisabled,
     };
   }
 
   if (user.accessExpiresAt && user.accessExpiresAt < new Date()) {
     return {
       status: "error",
-      message: "This account has expired.",
+      message: dictionary.actionMessages.accountExpired,
     };
   }
 
@@ -87,6 +90,7 @@ export async function requestAccessAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const dictionary = getDictionary(await getLocale());
   const name = String(formData.get("name") || "").trim();
   const requestedUsername = String(formData.get("requestedUsername") || "").trim();
   const email = String(formData.get("email") || "").trim();
@@ -99,7 +103,7 @@ export async function requestAccessAction(
   if (!name || !requestedUsername || !email || !reason) {
     return {
       status: "error",
-      message: "Name, requested username, email, and reason are required.",
+      message: dictionary.actionMessages.requestFieldsRequired,
     };
   }
 
@@ -127,6 +131,6 @@ export async function requestAccessAction(
 
   return {
     status: "success",
-    message: "Access request submitted. The administrator can now approve or reject it from the console.",
+    message: dictionary.actionMessages.requestSubmitted,
   };
 }

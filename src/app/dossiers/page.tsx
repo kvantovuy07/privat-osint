@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
+import { getDateLocale, getDictionary } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 
 export default async function DossiersPage() {
   const user = await requireUser();
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
+  const dateLocale = getDateLocale(locale);
   const pendingRequestsCount =
     user.role === "ADMIN"
       ? await prisma.accessRequest.count({ where: { status: "PENDING" } })
@@ -17,18 +22,16 @@ export default async function DossiersPage() {
   return (
     <AppShell
       current="dossiers"
-      title="Saved Dossiers"
-      subtitle="Store the searches that matter and keep a compact analyst note beside each one for follow-up, outreach, or due diligence."
+      currentPath="/dossiers"
+      title={dictionary.dossiersPage.title}
+      subtitle={dictionary.dossiersPage.subtitle}
       user={user}
       pendingRequestsCount={pendingRequestsCount}
     >
       <div className="grid gap-4">
         {dossiers.length === 0 ? (
           <section className="panel">
-            <p className="text-sm text-zinc-400">
-              No dossiers saved yet. Run a search in the workspace and store the result from the
-              dossier panel.
-            </p>
+            <p className="text-sm text-zinc-400">{dictionary.dossiersPage.empty}</p>
           </section>
         ) : (
           dossiers.map((dossier) => (
@@ -37,8 +40,8 @@ export default async function DossiersPage() {
                 <div>
                   <h2 className="text-xl font-semibold text-white">{dossier.title}</h2>
                   <p className="text-sm text-zinc-500">
-                    Updated{" "}
-                    {new Intl.DateTimeFormat("en", {
+                    {dictionary.common.updated}{" "}
+                    {new Intl.DateTimeFormat(dateLocale, {
                       dateStyle: "medium",
                       timeStyle: "short",
                     }).format(dossier.updatedAt)}
@@ -51,7 +54,7 @@ export default async function DossiersPage() {
               {dossier.querySnapshot ? (
                 <details className="rounded-2xl border border-white/10 bg-black/25 p-4">
                   <summary className="cursor-pointer text-sm text-emerald-200">
-                    Open raw snapshot
+                    {dictionary.common.openRawSnapshot}
                   </summary>
                   <pre className="mt-4 overflow-x-auto whitespace-pre-wrap text-xs text-zinc-300">
                     {dossier.querySnapshot}

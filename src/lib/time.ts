@@ -18,12 +18,12 @@ export function parseOptionalDate(value: FormDataEntryValue | null) {
   return new Date(`${value}T23:59:59.999Z`);
 }
 
-export function formatDate(date?: Date | null) {
+export function formatDate(date?: Date | null, locale = "en-US") {
   if (!date) {
-    return "No expiry";
+    return locale.startsWith("ru") ? "Без срока" : "No expiry";
   }
 
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
