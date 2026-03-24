@@ -8,7 +8,7 @@
     "start": "next start",
     "postinstall": "node scripts/repair-broken-packages.mjs && prisma generate",
     "lint": "eslint",
-    "db:push": "sqlite3 prisma/dev.db < prisma/init.sql",
+    "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
     "db:studio": "prisma studio"
   },

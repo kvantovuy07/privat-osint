@@ -17,14 +17,12 @@ Private OSINT workbench for lawful company research, access-controlled investiga
 - React 19
 - Tailwind 4
 - Prisma Client for data access
-- SQLite storage bootstrapped through `prisma/init.sql`
+- Managed PostgreSQL via `DATABASE_URL`
 
 ## Quick Start
 
 ```bash
 npm install
-npm run db:push
-npm run db:seed
 npm run dev
 ```
 
@@ -36,6 +34,15 @@ Open `http://localhost:3000`.
 - Password: `Mentor07@`
 
 You can override these defaults in `.env`.
+
+## Database
+
+Set `DATABASE_URL` to a PostgreSQL connection string before running:
+
+```bash
+npm run db:push
+npm run db:seed
+```
 
 ## Commands
 
@@ -54,3 +61,4 @@ npm run db:seed
 - Built-in live search currently uses official GitHub search and official GLEIF registry search.
 - The rest of the OSINT stack is represented as a connector catalog and staged integration surface for later expansion.
 - `postinstall` repairs two broken registry packages in this environment before generating Prisma Client.
+- The first request to `/login` also ensures the seed admin exists if the database is empty.

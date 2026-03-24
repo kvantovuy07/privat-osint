@@ -7,6 +7,10 @@ const username = process.env.SEED_ADMIN_USERNAME || "Mentor";
 const password = process.env.SEED_ADMIN_PASSWORD || "Mentor07@";
 
 async function main() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for seeding.");
+  }
+
   const passwordHash = await bcrypt.hash(password, 12);
 
   await prisma.user.upsert({

@@ -1,7 +1,10 @@
 import { LoginForm } from "@/components/auth-forms";
 import { MatrixRain } from "@/components/matrix-rain";
+import { ensureSeedAdmin } from "@/lib/ensure-seed-admin";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  await ensureSeedAdmin();
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-black px-6 py-12">
       <MatrixRain />

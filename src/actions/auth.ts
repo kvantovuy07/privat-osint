@@ -10,6 +10,7 @@ import {
   getCurrentUser,
   verifyPassword,
 } from "@/lib/auth";
+import { ensureSeedAdmin } from "@/lib/ensure-seed-admin";
 import { type ActionState } from "@/lib/form-state";
 import { prisma } from "@/lib/prisma";
 
@@ -17,6 +18,8 @@ export async function loginAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await ensureSeedAdmin();
+
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
 
