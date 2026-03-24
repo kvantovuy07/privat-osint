@@ -21,7 +21,7 @@ export default async function SourcesPage() {
     <AppShell
       current="sources"
       title="Connector Library"
-      subtitle="Live sources are already callable from the search console. Ready and manual sources are staged so the platform can grow without losing the OSINT methodology we built."
+      subtitle="Live sources are already callable from the search console. Ready and keyed connectors are staged so the platform can keep growing without breaking the lawful OSINT workflow."
       user={user}
       pendingRequestsCount={pendingRequestsCount}
     >
@@ -70,6 +70,11 @@ export default async function SourcesPage() {
                       </span>
                     ))}
                   </div>
+                  {connector.notes ? (
+                    <p className="mt-4 rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-400">
+                      {connector.notes}
+                    </p>
+                  ) : null}
                   <a
                     href={connector.officialUrl}
                     target="_blank"

@@ -54,12 +54,12 @@ export function SearchConsole() {
             Unified Search
           </p>
           <h1 className="text-3xl font-semibold text-white md:text-5xl">
-            Search across lawful corporate OSINT sources in one place.
+            Search across lawful company, domain, archive, and username intelligence in one place.
           </h1>
           <p className="max-w-3xl text-sm text-zinc-400 md:text-base">
             Use a company name, domain, username, email, repository, person, or keyword.
-            Live connectors are mixed with a curated source stack so the console acts like a
-            real analyst workbench instead of a dead-end search box.
+            The console now combines registries, public code intelligence, archives, SEO
+            metadata, domain registration data, and deployable username pivots inside one analyst workflow.
           </p>
         </div>
         <div className="relative">
@@ -78,7 +78,7 @@ export function SearchConsole() {
             className="rounded-2xl bg-emerald-400 px-5 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
           />
           <span className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-zinc-400">
-            Search paths: company name, username, GitHub, registries, sanctions, domain signals
+            Search paths: Crunchbase-ready, SEC, GLEIF, Wayback, RDAP, SEO, GitHub, username pivots
           </span>
         </div>
       </form>
@@ -161,7 +161,12 @@ export function SearchConsole() {
             {searchState.result.sections.map((section) => (
               <section key={section.id} className="panel grid gap-4">
                 <div className="space-y-1">
-                  <h3 className="text-xl font-semibold text-white">{section.title}</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-xl font-semibold text-white">{section.title}</h3>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-zinc-400">
+                      {section.items.length} results
+                    </span>
+                  </div>
                   <p className="text-sm text-zinc-400">{section.description}</p>
                 </div>
                 <div className="grid gap-3 lg:grid-cols-2">
@@ -194,6 +199,19 @@ export function SearchConsole() {
                             >
                               {tag}
                             </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {item.details?.length ? (
+                        <div className="mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/30 p-3">
+                          {item.details.map((detail) => (
+                            <div
+                              key={`${item.id}-${detail.label}`}
+                              className="flex flex-wrap justify-between gap-2 text-sm"
+                            >
+                              <span className="text-zinc-500">{detail.label}</span>
+                              <span className="text-right text-zinc-200">{detail.value}</span>
+                            </div>
                           ))}
                         </div>
                       ) : null}
