@@ -57,7 +57,7 @@ export function SearchConsole() {
             Search across lawful company, domain, archive, and username intelligence in one place.
           </h1>
           <p className="max-w-3xl text-sm text-zinc-400 md:text-base">
-            Use a company name, domain, username, email, repository, person, or keyword.
+            Use a company name, domain, username, email, repository, person, phone number, or keyword.
             The console now combines registries, public code intelligence, archives, SEO
             metadata, domain registration data, and deployable username pivots inside one analyst workflow.
           </p>
@@ -66,7 +66,7 @@ export function SearchConsole() {
           <input
             name="query"
             required
-            placeholder="company name / domain / username / brand / repo / person / email"
+            placeholder="company / domain / username / +phone / brand / repo / person / email"
             className="h-16 w-full rounded-[1.5rem] border border-white/10 bg-white/5 px-6 text-lg text-white outline-none transition placeholder:text-white/35 focus:border-emerald-400/60 focus:bg-white/7"
           />
         </div>
@@ -78,7 +78,7 @@ export function SearchConsole() {
             className="rounded-2xl bg-emerald-400 px-5 py-3 font-medium text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
           />
           <span className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-zinc-400">
-            Search paths: Crunchbase-ready, SEC, GLEIF, Wayback, RDAP, SEO, GitHub, username pivots
+            Search paths: phone lookup, Crunchbase-ready, SEC, GLEIF, Wayback, DNS, RDAP, SEO, GitHub, username pivots
           </span>
         </div>
       </form>

@@ -14,7 +14,7 @@ export default async function WorkspacePage() {
     <AppShell
       current="workspace"
       title="Unified Search Console"
-      subtitle="Start with one search bar, then pivot through registries, SEC references, Wayback history, RDAP, SEO metadata, GitHub footprints, and deployable username intelligence."
+      subtitle="Start with one search bar, then pivot through phone enrichment, registries, SEC references, Wayback history, DNS, RDAP, SEO metadata, GitHub footprints, and deployable username intelligence."
       user={user}
       pendingRequestsCount={pendingRequestsCount}
     >

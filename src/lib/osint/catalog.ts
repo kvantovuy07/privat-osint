@@ -1,5 +1,7 @@
 import "server-only";
 
+import { parsePhoneNumberFromString } from "libphonenumber-js/max";
+
 export type QueryKind =
   | "company"
   | "domain"
@@ -7,7 +9,8 @@ export type QueryKind =
   | "email"
   | "repository"
   | "person"
-  | "keyword";
+  | "keyword"
+  | "phone";
 
 type SearchDetail = {
   label: string;
@@ -57,7 +60,92 @@ export type ConnectorCatalogItem = {
 const SEC_USER_AGENT =
   process.env.SEC_USER_AGENT || "Privat-OSINT/1.0 research@privat-osint.local";
 
+type WaybackSummary = {
+  pageCount: number;
+  closestUrl?: string;
+  closestTimestamp?: string;
+  captures: Array<{ timestamp: string; original: string }>;
+};
+
+type ProfileProbe = {
+  platform: string;
+  url: string;
+  status: number;
+  archivedPages?: number;
+};
+
+type BridgeConfig = {
+  id: string;
+  name: string;
+  urlEnv: string;
+  tokenEnv: string;
+  queryKinds: QueryKind[];
+  description: string;
+};
+
+const bridgeConfigs: BridgeConfig[] = [
+  {
+    id: "sherlock-bridge",
+    name: "Sherlock Bridge",
+    urlEnv: "SHERLOCK_BRIDGE_URL",
+    tokenEnv: "SHERLOCK_BRIDGE_TOKEN",
+    queryKinds: ["username", "person"],
+    description: "Self-hosted Sherlock worker for deeper username enumeration.",
+  },
+  {
+    id: "maigret-bridge",
+    name: "Maigret Bridge",
+    urlEnv: "MAIGRET_BRIDGE_URL",
+    tokenEnv: "MAIGRET_BRIDGE_TOKEN",
+    queryKinds: ["username", "person"],
+    description: "Self-hosted Maigret worker for richer profile footprinting.",
+  },
+  {
+    id: "spiderfoot-bridge",
+    name: "SpiderFoot Bridge",
+    urlEnv: "SPIDERFOOT_BRIDGE_URL",
+    tokenEnv: "SPIDERFOOT_BRIDGE_TOKEN",
+    queryKinds: ["company", "domain", "username", "email", "keyword", "phone"],
+    description: "Self-hosted SpiderFoot worker for automated recon modules.",
+  },
+  {
+    id: "theharvester-bridge",
+    name: "theHarvester Bridge",
+    urlEnv: "THEHARVESTER_BRIDGE_URL",
+    tokenEnv: "THEHARVESTER_BRIDGE_TOKEN",
+    queryKinds: ["company", "domain", "email", "keyword"],
+    description: "Self-hosted theHarvester worker for public email and subdomain discovery.",
+  },
+  {
+    id: "amass-bridge",
+    name: "Amass Bridge",
+    urlEnv: "AMASS_BRIDGE_URL",
+    tokenEnv: "AMASS_BRIDGE_TOKEN",
+    queryKinds: ["company", "domain", "keyword"],
+    description: "Self-hosted Amass worker for deeper infrastructure and graph discovery.",
+  },
+];
+
 export const connectorCatalog: ConnectorCatalogItem[] = [
+  {
+    id: "phone-parse",
+    name: "Phone Intelligence",
+    category: "Phone OSINT",
+    status: "live",
+    description: "E.164 parsing, country identification, formatting, and telecom metadata normalization.",
+    officialUrl: "https://github.com/catamphetamine/libphonenumber-js",
+    queryKinds: ["phone"],
+  },
+  {
+    id: "twilio-lookup",
+    name: "Twilio Lookup",
+    category: "Phone OSINT",
+    status: "requires_key",
+    description: "Official phone lookup API for validation and telecom metadata.",
+    officialUrl: "https://www.twilio.com/docs/lookup/v2-api",
+    queryKinds: ["phone"],
+    notes: "Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to activate live phone lookup.",
+  },
   {
     id: "gleif",
     name: "GLEIF LEI Records",
@@ -101,7 +189,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "live",
     description: "Internet Archive snapshot availability and CDX capture history.",
     officialUrl: "https://archive.org/web/",
-    queryKinds: ["domain", "username", "company", "keyword"],
+    queryKinds: ["domain", "username", "company", "keyword", "phone"],
   },
   {
     id: "rdap",
@@ -110,6 +198,15 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "live",
     description: "Registration and lifecycle data for public domains through RDAP.",
     officialUrl: "https://rdap.org/",
+    queryKinds: ["domain"],
+  },
+  {
+    id: "dns-over-https",
+    name: "DNS over HTTPS",
+    category: "Technical Footprint",
+    status: "live",
+    description: "DNS records via HTTPS for A, AAAA, MX, NS, TXT, and CNAME analysis.",
+    officialUrl: "https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/",
     queryKinds: ["domain"],
   },
   {
@@ -129,7 +226,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Company, person, and funding data via Crunchbase official API.",
     officialUrl: "https://data.crunchbase.com/v4-legacy/docs/using-autocompletes-api",
     queryKinds: ["company", "person", "keyword"],
-    notes: "Requires CRUNCHBASE_API_KEY. This connector is wired for optional use, not scraped without credentials.",
+    notes: "Requires CRUNCHBASE_API_KEY. This connector is official and optional, not scraped without credentials.",
   },
   {
     id: "companies-house",
@@ -156,18 +253,18 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "ready",
     description: "Sanctions, watchlists, PEPs, and due diligence datasets.",
     officialUrl: "https://www.opensanctions.org/docs/api/",
-    queryKinds: ["company", "person", "keyword"],
-    notes: "Useful for compliance and screening workflows. Add API or dataset bridge when you are ready to operationalize it.",
+    queryKinds: ["company", "person", "keyword", "phone"],
+    notes: "Useful for compliance and screening workflows. Add API or dataset bridge when ready to operationalize it.",
   },
   {
     id: "spiderfoot",
     name: "SpiderFoot",
     category: "OSINT Automation",
     status: "ready",
-    description: "Automated investigation engine for domains, IPs, emails, and usernames.",
+    description: "Automated investigation engine for domains, IPs, emails, usernames, and phone-linked pivots.",
     officialUrl: "https://github.com/smicallef/spiderfoot",
-    queryKinds: ["company", "domain", "email", "username", "keyword"],
-    notes: "Best connected as a separate self-hosted worker rather than a Vercel function.",
+    queryKinds: ["company", "domain", "email", "username", "keyword", "phone"],
+    notes: "Set SPIDERFOOT_BRIDGE_URL to surface real SpiderFoot results inside the app.",
   },
   {
     id: "theharvester",
@@ -177,7 +274,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Public email, domain, and subdomain discovery across search sources.",
     officialUrl: "https://github.com/laramies/theHarvester",
     queryKinds: ["domain", "company", "email", "keyword"],
-    notes: "Good candidate for a background worker or analyst-triggered job queue.",
+    notes: "Set THEHARVESTER_BRIDGE_URL to activate a worker-backed integration.",
   },
   {
     id: "subfinder",
@@ -187,7 +284,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Fast passive subdomain enumeration for external surface mapping.",
     officialUrl: "https://github.com/projectdiscovery/subfinder",
     queryKinds: ["domain"],
-    notes: "Deploy as a separate worker if you want real passive subdomain runs from the UI.",
+    notes: "Good fit for a background job worker rather than request-time Vercel execution.",
   },
   {
     id: "amass",
@@ -197,7 +294,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Attack surface mapping and network infrastructure discovery.",
     officialUrl: "https://github.com/owasp-amass/amass",
     queryKinds: ["domain", "company"],
-    notes: "Better suited for asynchronous jobs than serverless request-time calls.",
+    notes: "Set AMASS_BRIDGE_URL to activate deeper graph and infra discovery.",
   },
   {
     id: "web-check",
@@ -226,7 +323,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Username enumeration across public services.",
     officialUrl: "https://github.com/sherlock-project/sherlock",
     queryKinds: ["username", "person"],
-    notes: "Full Sherlock execution is better on a worker or container host. This app now exposes lightweight username pivots in-browser-safe form.",
+    notes: "Set SHERLOCK_BRIDGE_URL to connect a real Sherlock worker. The app already includes a lightweight deployable footprint layer.",
   },
   {
     id: "maigret",
@@ -236,7 +333,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     description: "Username and account footprint search across public sites.",
     officialUrl: "https://github.com/soxoj/maigret",
     queryKinds: ["username", "person"],
-    notes: "A good next-stage integration for deep profile enumeration with background jobs.",
+    notes: "Set MAIGRET_BRIDGE_URL to connect a richer username worker.",
   },
   {
     id: "gitleaks",
@@ -260,22 +357,12 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
   },
 ];
 
-type WaybackSummary = {
-  pageCount: number;
-  closestUrl?: string;
-  closestTimestamp?: string;
-  captures: Array<{ timestamp: string; original: string }>;
-};
-
-type ProfileProbe = {
-  platform: string;
-  url: string;
-  status: number;
-  archivedPages?: number;
-};
-
 export function inferQueryKind(input: string): QueryKind {
   const query = input.trim();
+
+  if (/^\+\d[\d\s().-]{6,}$/.test(query)) {
+    return "phone";
+  }
 
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(query)) {
     return "email";
@@ -285,12 +372,12 @@ export function inferQueryKind(input: string): QueryKind {
     return "repository";
   }
 
-  if (/^(?:@)?[a-z0-9][a-z0-9._-]{1,38}$/i.test(query)) {
-    return query.startsWith("@") ? "username" : "keyword";
-  }
-
   if (/^(?!https?:\/\/)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(query)) {
     return "domain";
+  }
+
+  if (/^(?:@)?[a-z0-9][a-z0-9._-]{1,38}$/i.test(query)) {
+    return query.startsWith("@") ? "username" : "keyword";
   }
 
   if (query.includes("/")) {
@@ -372,6 +459,67 @@ function safeDomainFromQuery(query: string) {
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "")
     .toLowerCase();
+}
+
+function normalizeBridgeItem(toolName: string, item: SearchItem, index: number): SearchItem {
+  return {
+    ...item,
+    id: item.id || `${toolName}-${index}`,
+    source: item.source || toolName,
+    tags: item.tags || [toolName.toLowerCase(), "worker"],
+  };
+}
+
+async function callToolBridge(
+  config: BridgeConfig,
+  query: string,
+  inferredType: QueryKind,
+): Promise<SearchSection | null> {
+  const bridgeUrl = process.env[config.urlEnv];
+
+  if (!bridgeUrl || !config.queryKinds.includes(inferredType)) {
+    return null;
+  }
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+
+  const token = process.env[config.tokenEnv];
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(bridgeUrl, {
+    method: "POST",
+    headers,
+    cache: "no-store",
+    body: JSON.stringify({
+      query,
+      type: inferredType,
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${config.name} bridge returned ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    title?: string;
+    description?: string;
+    items?: SearchItem[];
+  };
+
+  return {
+    id: config.id,
+    title: data.title || config.name,
+    description:
+      data.description || `Results returned by the configured ${config.name} worker.`,
+    items: (data.items || []).map((item, index) =>
+      normalizeBridgeItem(config.name, item, index),
+    ),
+  };
 }
 
 async function searchGleifCompanies(query: string): Promise<SearchItem[]> {
@@ -621,28 +769,24 @@ async function buildWaybackSection(
 ): Promise<SearchSection | null> {
   try {
     const summary = await fetchWaybackSummary(target);
-
-    const items: SearchItem[] = [];
-
-    items.push({
-      id: `${sectionId}-summary`,
-      source: "Wayback Machine",
-      type: "archive-summary",
-      title: target,
-      subtitle: "Historical web archive coverage",
-      description:
-        summary.pageCount > 0
-          ? `${summary.pageCount} archive result pages with a latest known snapshot.`
-          : "No substantial archive history was returned for this target.",
-      url: summary.closestUrl,
-      tags: ["archive", "history"],
-      details: [
-        { label: "Archive pages", value: String(summary.pageCount) },
-        { label: "Closest capture", value: renderTimestamp(summary.closestTimestamp) },
-      ],
-    });
-
-    items.push(
+    const items: SearchItem[] = [
+      {
+        id: `${sectionId}-summary`,
+        source: "Wayback Machine",
+        type: "archive-summary",
+        title: target,
+        subtitle: "Historical web archive coverage",
+        description:
+          summary.pageCount > 0
+            ? `${summary.pageCount} archive result pages with a latest known snapshot.`
+            : "No substantial archive history was returned for this target.",
+        url: summary.closestUrl,
+        tags: ["archive", "history"],
+        details: [
+          { label: "Archive pages", value: String(summary.pageCount) },
+          { label: "Closest capture", value: renderTimestamp(summary.closestTimestamp) },
+        ],
+      },
       ...summary.captures.map((capture, index) => ({
         id: `${sectionId}-capture-${index}`,
         source: "Wayback Machine",
@@ -653,7 +797,7 @@ async function buildWaybackSection(
         url: `https://web.archive.org/web/${capture.timestamp}/${capture.original}`,
         tags: ["archive", "capture"],
       })),
-    );
+    ];
 
     return {
       id: sectionId,
@@ -707,6 +851,48 @@ async function searchRdapDomain(domain: string): Promise<SearchItem[]> {
       ],
     },
   ];
+}
+
+async function searchDnsRecords(domain: string): Promise<SearchItem[]> {
+  const recordTypes = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"] as const;
+  const results = await Promise.all(
+    recordTypes.map(async (type) => {
+      try {
+        const data = await fetchJson<{
+          Answer?: Array<{ data: string }>;
+        }>(
+          `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=${type}`,
+          {
+            headers: {
+              Accept: "application/dns-json",
+            },
+          },
+        );
+
+        const values = (data.Answer || []).map((answer) => answer.data).filter(Boolean);
+        return { type, values };
+      } catch {
+        return { type, values: [] as string[] };
+      }
+    }),
+  );
+
+  return results
+    .filter((record) => record.values.length > 0)
+    .map((record) => ({
+      id: `dns-${record.type}-${domain}`,
+      source: "Cloudflare DoH",
+      type: `dns-${record.type.toLowerCase()}`,
+      title: `${record.type} records`,
+      subtitle: domain,
+      description: record.values.slice(0, 4).join(" • "),
+      url: `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=${record.type}`,
+      tags: ["dns", record.type.toLowerCase(), "spiderfoot-class"],
+      details: [
+        { label: "Record count", value: String(record.values.length) },
+        { label: "Sample", value: record.values.slice(0, 2).join(" | ") },
+      ],
+    }));
 }
 
 async function searchWebsiteMetadata(domain: string): Promise<SearchItem[]> {
@@ -793,6 +979,89 @@ async function searchWebsiteMetadata(domain: string): Promise<SearchItem[]> {
   ];
 }
 
+async function searchPhoneIntelligence(input: string): Promise<SearchItem[]> {
+  const parsed = parsePhoneNumberFromString(input);
+
+  if (!parsed) {
+    return [];
+  }
+
+  const items: SearchItem[] = [
+    {
+      id: `phone-${parsed.number}`,
+      source: "Phone Intelligence",
+      type: "normalized-phone",
+      title: parsed.number,
+      subtitle: parsed.country || "Country unresolved",
+      description: parsed.isValid()
+        ? "Phone number parsed and validated against numbering metadata."
+        : "Phone number parsed but did not fully validate against numbering metadata.",
+      tags: ["phone", "e164", "normalized"],
+      details: [
+        { label: "International", value: parsed.formatInternational() },
+        { label: "National", value: parsed.formatNational() },
+        { label: "Country", value: parsed.country || "Unknown" },
+        { label: "Calling code", value: `+${parsed.countryCallingCode}` },
+        { label: "Possible", value: parsed.isPossible() ? "Yes" : "No" },
+        { label: "Valid", value: parsed.isValid() ? "Yes" : "No" },
+        { label: "Type", value: parsed.getType() || "Unknown" },
+      ],
+    },
+  ];
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+  if (accountSid && authToken) {
+    try {
+      const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+      const lookup = await fetchJson<{
+        country_code?: string;
+        calling_country_code?: string;
+        national_format?: string;
+        phone_number?: string;
+        valid?: boolean;
+        url?: string;
+      }>(
+        `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(parsed.number)}`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Basic ${auth}`,
+          },
+        },
+      );
+
+      items.push({
+        id: `twilio-${parsed.number}`,
+        source: "Twilio Lookup",
+        type: "phone-lookup",
+        title: lookup.phone_number || parsed.number,
+        subtitle: "Official Twilio Lookup",
+        description:
+          typeof lookup.valid === "boolean"
+            ? `Twilio marked this number as ${lookup.valid ? "valid" : "invalid"}.`
+            : "Twilio lookup returned a normalization result.",
+        url: lookup.url,
+        tags: ["phone", "twilio", "official api"],
+        details: [
+          { label: "Country", value: lookup.country_code || "Unknown" },
+          { label: "Calling code", value: lookup.calling_country_code || "Unknown" },
+          { label: "National format", value: lookup.national_format || "Unknown" },
+          {
+            label: "Valid",
+            value: typeof lookup.valid === "boolean" ? (lookup.valid ? "Yes" : "No") : "Unknown",
+          },
+        ],
+      });
+    } catch {
+      // keep base parsing result only
+    }
+  }
+
+  return items;
+}
+
 async function searchCrunchbase(query: string): Promise<SearchItem[]> {
   const key = process.env.CRUNCHBASE_API_KEY;
   if (!key) {
@@ -801,7 +1070,7 @@ async function searchCrunchbase(query: string): Promise<SearchItem[]> {
 
   const data = await fetchJson<{
     entities?: Array<{
-      identifier?: { uuid?: string; value?: string; image_id?: string; permalink?: string };
+      identifier?: { uuid?: string; value?: string; permalink?: string };
       short_description?: string;
       facet_ids?: string[];
     }>;
@@ -838,7 +1107,6 @@ async function probeProfile(url: string): Promise<number> {
       redirect: "follow",
       signal: AbortSignal.timeout(7000),
     });
-
     return fallback;
   });
 
@@ -852,32 +1120,35 @@ async function searchUsernameFootprint(username: string): Promise<SearchItem[]> 
     { platform: "GitLab", url: `https://gitlab.com/${normalized}` },
     { platform: "DEV", url: `https://dev.to/${normalized}` },
     { platform: "Keybase", url: `https://keybase.io/${normalized}` },
+    { platform: "Telegram", url: `https://t.me/${normalized}` },
+    { platform: "Hugging Face", url: `https://huggingface.co/${normalized}` },
+    { platform: "Buy Me a Coffee", url: `https://buymeacoffee.com/${normalized}` },
   ];
 
   const probes = await Promise.allSettled(
     candidates.map(async (candidate) => {
       const status = await probeProfile(candidate.url);
-      if (status < 400) {
-        let archivedPages = 0;
 
-        try {
-          const summary = await fetchWaybackSummary(candidate.url);
-          archivedPages = summary.pageCount;
-        } catch {
-          archivedPages = 0;
-        }
-
-        const result: ProfileProbe = {
-          platform: candidate.platform,
-          url: candidate.url,
-          status,
-          archivedPages,
-        };
-
-        return result;
+      if (status >= 400) {
+        return null;
       }
 
-      return null;
+      let archivedPages = 0;
+      try {
+        const summary = await fetchWaybackSummary(candidate.url);
+        archivedPages = summary.pageCount;
+      } catch {
+        archivedPages = 0;
+      }
+
+      const result: ProfileProbe = {
+        platform: candidate.platform,
+        url: candidate.url,
+        status,
+        archivedPages,
+      };
+
+      return result;
     }),
   );
 
@@ -908,7 +1179,7 @@ function recommendedConnectors(kind: QueryKind) {
       const statusWeight = { live: 0, ready: 1, requires_key: 2, manual: 3 };
       return statusWeight[a.status] - statusWeight[b.status];
     })
-    .slice(0, 10)
+    .slice(0, 12)
     .map((connector) => ({
       id: connector.id,
       source: connector.category,
@@ -949,11 +1220,46 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
   const sections: SearchSection[] = [];
   const warnings: string[] = [
     "Results are sourced only from lawful public endpoints and curated open-source workflows.",
-    "Treat all matches as analyst leads that still need validation before any real-world action.",
+    "Treat all matches as analyst leads that still need verification before any real-world action.",
   ];
   const usedSources = new Set<string>();
-
   const tasks: Array<Promise<void>> = [];
+
+  if (inferredType === "phone") {
+    tasks.push(
+      (async () => {
+        const items = await searchPhoneIntelligence(normalizedQuery);
+        addSection(
+          sections,
+          usedSources,
+          "Phone Intelligence",
+          "Phone Intelligence",
+          "Normalization, telecom metadata, and optional official lookup.",
+          items,
+        );
+      })(),
+    );
+
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+      warnings.push(
+        "Twilio Lookup is wired as an optional official connector. Add TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to activate live phone lookup.",
+      );
+    }
+
+    tasks.push(
+      (async () => {
+        const section = await buildWaybackSection(
+          normalizedQuery,
+          "wayback-phone",
+          "Archive Footprint",
+        );
+        if (section) {
+          usedSources.add("Wayback Machine");
+          sections.push(section);
+        }
+      })(),
+    );
+  }
 
   if (inferredType === "company" || inferredType === "keyword") {
     tasks.push(
@@ -1080,6 +1386,20 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
 
     tasks.push(
       (async () => {
+        const items = await searchDnsRecords(domain);
+        addSection(
+          sections,
+          usedSources,
+          "Cloudflare DoH",
+          "DNS Footprint",
+          "DNS records for technical footprinting and SpiderFoot-style pivots.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
         const items = await searchWebsiteMetadata(domain);
         addSection(
           sections,
@@ -1119,6 +1439,42 @@ export async function runUnifiedSearch(query: string): Promise<SearchRun> {
         );
       })(),
     );
+
+    tasks.push(
+      (async () => {
+        const section = await buildWaybackSection(
+          normalizedQuery,
+          "wayback-username",
+          "Username Archive Trails",
+        );
+        if (section) {
+          usedSources.add("Wayback Machine");
+          sections.push(section);
+        }
+      })(),
+    );
+  }
+
+  for (const config of bridgeConfigs) {
+    if (!config.queryKinds.includes(inferredType)) {
+      continue;
+    }
+
+    tasks.push(
+      (async () => {
+        const section = await callToolBridge(config, normalizedQuery, inferredType);
+        if (section && section.items.length > 0) {
+          usedSources.add(config.name);
+          sections.push(section);
+        }
+      })(),
+    );
+
+    if (!process.env[config.urlEnv]) {
+      warnings.push(
+        `${config.name} is bridge-ready but not live yet. Set ${config.urlEnv} to connect your self-hosted worker.`,
+      );
+    }
   }
 
   const settled = await Promise.allSettled(tasks);
