@@ -33,6 +33,14 @@ docker build -t privat-osint-heavy-worker .
 docker run --rm -p 8080:8080 --env-file .env privat-osint-heavy-worker
 ```
 
+## One-file deploy options
+
+- `Fly.io`: use [fly.toml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/fly.toml)
+- `Render`: use [render.yaml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/render.yaml)
+- `Railway`: use [railway.toml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/railway.toml)
+
+All three expect you to set the same runtime env vars from [.env.example](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/.env.example).
+
 ## Commands
 
 Each endpoint shells out to a configurable command template.

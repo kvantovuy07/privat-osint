@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: privat-osint-heavy-worker
+    runtime: docker
+    dockerfilePath: ./workers/heavy-osint/Dockerfile
+    dockerContext: ./workers/heavy-osint
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: OSINT_WORKER_TOKEN
+        sync: false
+      - key: SHERLOCK_COMMAND
+        sync: false
+      - key: MAIGRET_COMMAND
+        sync: false
+      - key: THEHARVESTER_COMMAND
+        sync: false
+      - key: SUBFINDER_COMMAND
+        sync: false
+      - key: AMASS_COMMAND
+        sync: false
+      - key: SPIDERFOOT_COMMAND
+        sync: false

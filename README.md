@@ -63,5 +63,6 @@ npm run db:seed
 - Built-in live search now covers registry, GitHub, Wikidata, email/domain pivots, archives, DNS, certificate transparency, SEO metadata, and phone normalization.
 - Official keyed connectors are supported for Crunchbase, Companies House, and OpenCorporates.
 - Heavy tools are meant to run through the self-hosted worker in [workers/heavy-osint](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/README.md), not inside Vercel request-time.
+- Ready-to-use deploy manifests for the heavy worker are included for `Fly.io`, `Render`, and `Railway`.
 - `postinstall` repairs two broken registry packages in this environment before generating Prisma Client.
 - The first request to `/login` also ensures the seed admin exists if the database is empty.
