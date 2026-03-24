@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                    String          @id @default(cuid())
+  username              String          @unique
+  name                  String?
+  email                 String?         @unique
+  passwordHash          String
+  role                  Role            @default(VIEWER)
+  isActive              Boolean         @default(true)
+  accessExpiresAt       DateTime?
+  queryLimitTotal       Int?
+  queryUsedTotal        Int             @default(0)
+  queryLimitMonthly     Int?
+  queryUsedMonthly      Int             @default(0)
+  monthlyWindowStartedAt DateTime?
+  createdById           String?
+  createdBy             User?           @relation("CreatedUsers", fields: [createdById], references: [id])
+  createdUsers          User[]          @relation("CreatedUsers")
+  sessions              Session[]
+  queryLogs             QueryLog[]
+  dossiers              Dossier[]
+  handledRequests       AccessRequest[] @relation("HandledRequests")
+  approvedRequests      AccessRequest[] @relation("ApprovedUsers")
+  actorLogs             AuditLog[]      @relation("AuditActor")
+  targetLogs            AuditLog[]      @relation("AuditTarget")
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+}
+
+model AccessRequest {
+  id                String              @id @default(cuid())
+  name              String
+  requestedUsername String
+  email             String
+  contact           String?
+  company           String?
+  reason            String
+  comment           String?
+  status            AccessRequestStatus @default(PENDING)
+  reviewedById      String?
+  reviewedBy        User?               @relation("HandledRequests", fields: [reviewedById], references: [id])
+  reviewedAt        DateTime?
+  approvedUserId    String?
+  approvedUser      User?               @relation("ApprovedUsers", fields: [approvedUserId], references: [id])
+  reviewNote        String?
+  ipAddress         String?
+  createdAt         DateTime            @default(now())
+}
+
+model AuditLog {
+  id                    String   @id @default(cuid())
+  action                String
+  actorUserId           String?
+  actorUser             User?    @relation("AuditActor", fields: [actorUserId], references: [id])
+  targetUserId          String?
+  targetUser            User?    @relation("AuditTarget", fields: [targetUserId], references: [id])
+  targetAccessRequestId String?
+  details               String?
+  createdAt             DateTime @default(now())
+}
+
+model QueryLog {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query        String
+  inferredType String
+  sources      String
+  resultCount  Int      @default(0)
+  status       String
+  createdAt    DateTime @default(now())
+}
+
+model Dossier {
+  id            String   @id @default(cuid())
+  ownerId       String
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  querySnapshot String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
