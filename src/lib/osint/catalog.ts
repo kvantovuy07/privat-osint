@@ -2179,7 +2179,56 @@ async function searchSecCompanies(query: string, locale: Locale): Promise<Search
   }));
 }
 
-async function searchGithubUsers(query: string, locale: Locale): Promise<SearchItem[]> {
+function normalizeIdentityToken(value: string) {
+  return value.replace(/^@/, "").trim().toLowerCase();
+}
+
+function usernameMatchWeight(login: string, target: string) {
+  const normalizedLogin = normalizeIdentityToken(login);
+  const normalizedTarget = normalizeIdentityToken(target);
+
+  if (!normalizedLogin || !normalizedTarget) {
+    return 0;
+  }
+
+  if (normalizedLogin === normalizedTarget) {
+    return 4;
+  }
+
+  if (normalizedLogin.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedLogin)) {
+    return 3;
+  }
+
+  if (normalizedLogin.includes(normalizedTarget) || normalizedTarget.includes(normalizedLogin)) {
+    return 2;
+  }
+
+  const slugLogin = slugToken(normalizedLogin);
+  const slugTarget = slugToken(normalizedTarget);
+  if (!slugLogin || !slugTarget) {
+    return 0;
+  }
+
+  if (slugLogin === slugTarget) {
+    return 4;
+  }
+
+  if (slugLogin.startsWith(slugTarget) || slugTarget.startsWith(slugLogin)) {
+    return 2;
+  }
+
+  if (slugLogin.includes(slugTarget) || slugTarget.includes(slugLogin)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+async function searchGithubUsers(
+  query: string,
+  locale: Locale,
+  focusUsername?: string,
+): Promise<SearchItem[]> {
   const dictionary = getDictionary(locale);
   const data = await fetchJson<{
     items: Array<{
@@ -2194,7 +2243,21 @@ async function searchGithubUsers(query: string, locale: Locale): Promise<SearchI
     { headers: githubHeaders() },
   );
 
-  return data.items.map((item) => ({
+  const filteredItems = focusUsername
+    ? data.items
+        .map((item) => ({
+          item,
+          weight: usernameMatchWeight(item.login, focusUsername),
+        }))
+        .filter((entry) => entry.weight > 0)
+        .sort(
+          (left, right) =>
+            right.weight - left.weight || right.item.score - left.item.score,
+        )
+        .map((entry) => entry.item)
+    : data.items;
+
+  return filteredItems.map((item) => ({
     id: `github-user-${item.id}`,
     source: "GitHub",
     type: item.type.toLowerCase(),
@@ -2221,12 +2284,16 @@ async function searchGithubExactUser(
       id: number;
       html_url: string;
       type: string;
+      name: string | null;
       bio: string | null;
+      blog: string | null;
+      twitter_username: string | null;
       public_repos: number;
       followers: number;
       following: number;
       company: string | null;
       location: string | null;
+      created_at: string;
     }>(`https://api.github.com/users/${encodeURIComponent(username)}`, {
       headers: githubHeaders(),
     });
@@ -2242,6 +2309,10 @@ async function searchGithubExactUser(
         url: item.html_url,
         tags: ["github", "exact match", "username"],
         details: [
+          {
+            label: locale === "ru" ? "Имя" : "Name",
+            value: item.name || dictionary.common.notListed,
+          },
           {
             label: dictionary.searchResults.itemLabels.publicRepos,
             value: String(item.public_repos),
@@ -2261,6 +2332,20 @@ async function searchGithubExactUser(
           {
             label: dictionary.searchResults.itemLabels.location,
             value: item.location || dictionary.common.notListed,
+          },
+          {
+            label: locale === "ru" ? "Сайт" : "Website",
+            value: item.blog || dictionary.common.notListed,
+          },
+          {
+            label: locale === "ru" ? "Twitter / X" : "Twitter / X",
+            value: item.twitter_username || dictionary.common.notListed,
+          },
+          {
+            label: locale === "ru" ? "Создан" : "Created",
+            value: new Date(item.created_at).toLocaleDateString(
+              locale === "ru" ? "ru-RU" : "en-US",
+            ),
           },
         ],
       },
@@ -4592,11 +4677,11 @@ function inferEntityType(item: SearchItem, locale: Locale) {
   if (/(domain|dns|rdap|certificate|subdomain|security\.txt|robots|sitemap|headers|json-ld|structured data)/i.test(haystack)) {
     return locale === "ru" ? "Домен / сайт" : "Domain / Website";
   }
-  if (/(github|repository|repo|octosuite)/i.test(haystack)) {
-    return locale === "ru" ? "Репозиторий / код" : "Repository / Code";
-  }
   if (/(person|officer|username|profile|name-analysis)/i.test(haystack)) {
     return locale === "ru" ? "Человек / профиль" : "Person / Profile";
+  }
+  if (/(github|repository|repo|octosuite)/i.test(haystack)) {
+    return locale === "ru" ? "Репозиторий / код" : "Repository / Code";
   }
   if (/(company|registry|issuer|lei|ticker|jurisdiction|officer-record|company-record)/i.test(haystack)) {
     return locale === "ru" ? "Компания" : "Company";
@@ -5346,11 +5431,12 @@ export async function runUnifiedSearch(
   ) {
     tasks.push(
       (async () => {
+        const usernameQuery = canonicalizeUsername(normalizedQuery);
         const items =
           inferredType === "username"
             ? [
-                ...(await searchGithubExactUser(normalizedQuery, locale)),
-                ...(await searchGithubUsers(canonicalizeUsername(normalizedQuery), locale)),
+                ...(await searchGithubExactUser(usernameQuery, locale)),
+                ...(await searchGithubUsers(usernameQuery, locale, usernameQuery)),
               ]
             : inferredType === "person"
               ? [
@@ -5359,8 +5445,8 @@ export async function runUnifiedSearch(
                 ]
               : keywordLooksLikeHandle
                 ? [
-                    ...(await searchGithubExactUser(canonicalizeUsername(normalizedQuery), locale)),
-                    ...(await searchGithubUsers(normalizedQuery, locale)),
+                    ...(await searchGithubExactUser(usernameQuery, locale)),
+                    ...(await searchGithubUsers(usernameQuery, locale, usernameQuery)),
                   ]
             : await searchGithubUsers(normalizedQuery, locale);
 
