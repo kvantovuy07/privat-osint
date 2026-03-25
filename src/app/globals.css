@@ -67,6 +67,40 @@ a {
   animation-iteration-count: infinite;
 }
 
+.ambient-signals {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.9));
+}
+
+.ambient-source {
+  position: absolute;
+  font-family: var(--font-azeret-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.35em;
+  color: rgba(74, 222, 128, 0.22);
+  text-shadow: 0 0 14px rgba(74, 222, 128, 0.18);
+  animation: ambient-drift linear infinite;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ambient-binary {
+  position: absolute;
+  top: -18%;
+  width: 4.2%;
+  font-family: var(--font-azeret-mono), monospace;
+  font-size: 0.58rem;
+  line-height: 1.55;
+  color: rgba(74, 222, 128, 0.11);
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.1);
+  white-space: pre-wrap;
+  animation: ambient-binary-fall linear infinite;
+}
+
 @keyframes matrix-fall {
   from {
     transform: translateY(-10%);
@@ -80,6 +114,44 @@ a {
   }
   to {
     transform: translateY(160%);
+    opacity: 0;
+  }
+}
+
+@keyframes ambient-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(16px, -10px, 0);
+    opacity: 0.5;
+  }
+  88% {
+    opacity: 0.22;
+  }
+  100% {
+    transform: translate3d(-10px, 12px, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes ambient-binary-fall {
+  from {
+    transform: translateY(-6%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.48;
+  }
+  80% {
+    opacity: 0.18;
+  }
+  to {
+    transform: translateY(138%);
     opacity: 0;
   }
 }

@@ -96,20 +96,20 @@ const dictionaries = {
     workspacePage: {
       title: "Unified Search Console",
       subtitle:
-        "Start with one search bar, then pivot through phone enrichment, registries, SEC references, Wayback history, DNS, certificate transparency, RDAP, SEO metadata, security.txt, GitHub footprints, and native username intelligence.",
+        "Start with one search bar, then pivot through phone enrichment, registries, SEC references, Wikipedia and Wikidata context, Wayback history, Common Crawl archive coverage, DNS, RIPEstat hosting intelligence, certificate transparency, RDAP, HTTP headers, structured data, crawl-surface analysis, SEO metadata, security.txt, GitHub footprints, site ownership signals, and native username intelligence.",
     },
     searchConsole: {
       eyebrow: "Unified Search",
       title:
         "Search across lawful company, domain, archive, person, and username intelligence in one place.",
       description:
-        "Use a company name, domain, username, email, repository, person, phone number, or keyword. The console now combines registries, public code intelligence, archives, certificate transparency, SEO metadata, domain registration data, and native Sherlock-class pivots inside one analyst workflow.",
+        "Use a company name, domain, website URL, username, email, repository, person, phone number, or keyword. The console now combines registries, public code intelligence, Wayback plus Common Crawl archives, RIPEstat hosting intelligence, certificate transparency, HTTP headers, structured data, crawl-surface analysis, SEO metadata, domain registration data, site ownership signals, encyclopedia context, and native Sherlock-class pivots inside one analyst workflow.",
       placeholder:
         "company / domain / username / +phone / brand / repo / person / email",
       run: "Run Search",
       running: "Searching...",
       searchPaths:
-        "Native search paths: email intelligence, Gravatar, phone lookup, Wikidata, SEC, GLEIF, Companies House, OpenCorporates, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
+        "Native search paths: email intelligence, Gravatar, phone lookup, Wikidata, Wikipedia, SEC, GLEIF, Companies House, OpenCorporates, Wayback, Common Crawl, DNS, RIPEstat, crt.sh, RDAP, HTTP headers, structured data, crawl surface, security.txt, SEO, hosting, ownership, GitHub, username pivots",
       snapshot: "Search Snapshot",
       dossierEyebrow: "Dossier",
       saveTitle: "Save this investigation",
@@ -265,7 +265,7 @@ const dictionaries = {
           "Homepage metadata, contact hints, canonical, and crawl surface indicators.",
         webArchivesTitle: "Web Archives",
         webArchivesDescription:
-          "Internet Archive coverage, latest capture, and historical sample points.",
+          "Wayback history, Common Crawl archive coverage, and historical sample points.",
         archiveFootprintTitle: "Archive Footprint",
         usernameFootprintTitle: "Username Footprint",
         usernameFootprintDescription:
@@ -448,20 +448,20 @@ const dictionaries = {
     workspacePage: {
       title: "Единая поисковая консоль",
       subtitle:
-        "Начните с одной строки поиска, а затем переходите к phone enrichment, реестрам, данным SEC, истории Wayback, DNS, certificate transparency, RDAP, SEO-метаданным, security.txt, GitHub-footprints и нативной username-разведке.",
+        "Начните с одной строки поиска, а затем переходите к phone enrichment, реестрам, контексту Wikipedia и Wikidata, данным SEC, истории Wayback, покрытию Common Crawl, DNS, RIPEstat-хостингу, certificate transparency, RDAP, HTTP-заголовкам, структурированным данным сайта, crawl-surface анализу, SEO-метаданным, security.txt, GitHub-footprints, сигналам владения сайтом и нативной username-разведке.",
     },
     searchConsole: {
       eyebrow: "Единый поиск",
       title:
         "Ищите законную информацию по компаниям, доменам, архивам, людям и username в одном месте.",
       description:
-        "Введите название компании, домен, username, email, репозиторий, человека, номер телефона или ключевое слово. Консоль объединяет реестры, публичную code intelligence, архивы, certificate transparency, SEO-метаданные, данные о домене и нативные Sherlock-class pivots в одном аналитическом workflow.",
+        "Введите название компании, домен, URL сайта, username, email, репозиторий, человека, номер телефона или ключевое слово. Консоль объединяет реестры, публичную code intelligence, архивы Wayback и Common Crawl, RIPEstat-хостинг, certificate transparency, HTTP-заголовки, структурированные данные, crawl-surface анализ, SEO-метаданные, данные о домене, сигналы владения сайтом, энциклопедический контекст и нативные Sherlock-class pivots в одном аналитическом workflow.",
       placeholder:
         "company / domain / username / +phone / brand / repo / person / email",
       run: "Запустить поиск",
       running: "Идёт поиск...",
       searchPaths:
-        "Нативные пути поиска: email intelligence, Gravatar, phone lookup, Wikidata, SEC, GLEIF, Companies House, OpenCorporates, Wayback, DNS, crt.sh, RDAP, security.txt, SEO, GitHub, username pivots",
+        "Нативные пути поиска: email intelligence, Gravatar, phone lookup, Wikidata, Wikipedia, SEC, GLEIF, Companies House, OpenCorporates, Wayback, Common Crawl, DNS, RIPEstat, crt.sh, RDAP, HTTP headers, structured data, crawl surface, security.txt, SEO, hosting, ownership, GitHub, username pivots",
       snapshot: "Снимок поиска",
       dossierEyebrow: "Досье",
       saveTitle: "Сохранить это исследование",
@@ -617,7 +617,7 @@ const dictionaries = {
           "Метаданные главной страницы, контактные следы, canonical и индикаторы crawl-surface.",
         webArchivesTitle: "Веб-архивы",
         webArchivesDescription:
-          "Покрытие Internet Archive, ближайший capture и исторические sample-точки.",
+          "История Wayback, покрытие Common Crawl и исторические sample-точки.",
         archiveFootprintTitle: "Архивный след",
         usernameFootprintTitle: "След по username",
         usernameFootprintDescription:

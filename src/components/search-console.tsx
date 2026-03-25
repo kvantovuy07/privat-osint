@@ -23,6 +23,42 @@ function uniqueValues(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function verificationLabel(
+  status: "verified" | "likely" | "candidate" | undefined,
+  locale: "en" | "ru",
+) {
+  if (status === "verified") {
+    return locale === "ru" ? "Подтверждено" : "Verified";
+  }
+  if (status === "likely") {
+    return locale === "ru" ? "Вероятно" : "Likely";
+  }
+  return locale === "ru" ? "Кандидат" : "Candidate";
+}
+
+function confidenceLabel(
+  level: "high" | "medium" | "low" | undefined,
+  locale: "en" | "ru",
+) {
+  if (level === "high") {
+    return locale === "ru" ? "Высокая" : "High";
+  }
+  if (level === "low") {
+    return locale === "ru" ? "Низкая" : "Low";
+  }
+  return locale === "ru" ? "Средняя" : "Medium";
+}
+
+function matchKindLabel(
+  kind: "direct" | "derived" | undefined,
+  locale: "en" | "ru",
+) {
+  if (kind === "derived") {
+    return locale === "ru" ? "Производный pivot" : "Derived pivot";
+  }
+  return locale === "ru" ? "Прямое совпадение" : "Direct match";
+}
+
 function deriveDataTypes(
   item: {
     source: string;
@@ -32,6 +68,12 @@ function deriveDataTypes(
     description?: string;
     tags?: string[];
     dataTypes?: string[];
+    entityType?: string;
+    confidence?: "high" | "medium" | "low";
+    verificationStatus?: "verified" | "likely" | "candidate";
+    verificationNote?: string;
+    matchKind?: "direct" | "derived";
+    matchNote?: string;
     details?: Array<{ label: string; value: string }>;
   },
   locale: "en" | "ru",
@@ -286,12 +328,58 @@ export function SearchConsole() {
                           {formatItemType(item.type)}
                         </span>
                       </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.entityType ? (
+                          <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2.5 py-1 text-xs text-fuchsia-100">
+                            {locale === "ru" ? "Сущность" : "Entity"}: {item.entityType}
+                          </span>
+                        ) : null}
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-xs ${
+                            item.verificationStatus === "verified"
+                              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                              : item.verificationStatus === "likely"
+                                ? "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                                : "border-rose-400/20 bg-rose-400/10 text-rose-100"
+                          }`}
+                        >
+                          {locale === "ru" ? "Проверка" : "Verification"}:{" "}
+                          {verificationLabel(item.verificationStatus, locale)}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300">
+                          {locale === "ru" ? "Надёжность" : "Confidence"}:{" "}
+                          {confidenceLabel(item.confidence, locale)}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300">
+                          {matchKindLabel(item.matchKind, locale)}
+                        </span>
+                      </div>
                       <h4 className="mt-3 text-lg font-medium text-white">{item.title}</h4>
                       {item.subtitle ? (
                         <p className="mt-1 text-sm text-emerald-100/80">{item.subtitle}</p>
                       ) : null}
                       {item.description ? (
                         <p className="mt-3 text-sm text-zinc-300">{item.description}</p>
+                      ) : null}
+                      {item.verificationNote || item.matchNote ? (
+                        <div className="mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-300">
+                          {item.verificationNote ? (
+                            <p>
+                              <span className="text-zinc-500">
+                                {locale === "ru" ? "Почему показано" : "Why it is shown"}:
+                              </span>{" "}
+                              {item.verificationNote}
+                            </p>
+                          ) : null}
+                          {item.matchNote ? (
+                            <p>
+                              <span className="text-zinc-500">
+                                {locale === "ru" ? "Связь с запросом" : "Relation to query"}:
+                              </span>{" "}
+                              {item.matchNote}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                       {item.tags?.length ? (
                         <div className="mt-4 flex flex-wrap gap-2">

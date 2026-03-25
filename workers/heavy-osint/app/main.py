@@ -38,7 +38,7 @@ TOOL_CONFIG: dict[str, dict[str, Any]] = {
         "title": "theHarvester Worker",
         "description": "Structured results from the configured theHarvester command.",
         "command_env": "THEHARVESTER_COMMAND",
-        "default_command": "uv run theHarvester -d {query} -b all -f {output_base}",
+        "default_command": "theHarvester -d {query} -b all -f {output_base}",
         "parser": "theharvester",
     },
     "subfinder": {
@@ -59,6 +59,20 @@ TOOL_CONFIG: dict[str, dict[str, Any]] = {
         "title": "SpiderFoot Worker",
         "description": "Structured results from the configured SpiderFoot command.",
         "command_env": "SPIDERFOOT_COMMAND",
+        "default_command": "",
+        "parser": "generic",
+    },
+    "phoneinfoga": {
+        "title": "PhoneInfoga Worker",
+        "description": "Structured results from the configured PhoneInfoga command.",
+        "command_env": "PHONEINFOGA_COMMAND",
+        "default_command": "",
+        "parser": "phoneinfoga",
+    },
+    "octosuite": {
+        "title": "Octosuite Worker",
+        "description": "Structured results from the configured Octosuite command.",
+        "command_env": "OCTOSUITE_COMMAND",
         "default_command": "",
         "parser": "generic",
     },
@@ -331,6 +345,70 @@ def parse_amass(output_dir: Path, stdout: str) -> list[dict[str, Any]]:
     return items[:80]
 
 
+def parse_phoneinfoga(output_dir: Path, stdout: str) -> list[dict[str, Any]]:
+    text = stdout.strip()
+    if not text:
+        return []
+
+    json_candidates: list[Any] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("{") or line.startswith("["):
+            try:
+                json_candidates.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    if not json_candidates:
+        try:
+            json_candidates = [json.loads(text)]
+        except json.JSONDecodeError:
+            return parse_generic_lines(stdout, source="PhoneInfoga", tag="phone")
+
+    items: list[dict[str, Any]] = []
+
+    for payload in json_candidates:
+        if isinstance(payload, list):
+            iterable = payload
+        else:
+            iterable = [payload]
+
+        for entry in iterable:
+            if not isinstance(entry, dict):
+                continue
+
+            normalized = str(
+                entry.get("number")
+                or entry.get("phone")
+                or entry.get("input")
+                or entry.get("international")
+                or "Phone result"
+            )
+            country = str(entry.get("country") or entry.get("countryCode") or "")
+            carrier = str(entry.get("carrier") or entry.get("operator") or "")
+            line_type = str(entry.get("type") or entry.get("lineType") or "")
+            items.append(
+                serialize_item(
+                    "PhoneInfoga",
+                    "phone-intelligence",
+                    normalized,
+                    country or carrier,
+                    "Structured phone-intelligence result returned by PhoneInfoga.",
+                    None,
+                    ["phoneinfoga", "phone"],
+                    [
+                        {"label": "Country", "value": country or "Unknown"},
+                        {"label": "Carrier", "value": carrier or "Unknown"},
+                        {"label": "Type", "value": line_type or "Unknown"},
+                    ],
+                )
+            )
+
+    return items[:40] if items else parse_generic_lines(stdout, source="PhoneInfoga", tag="phone")
+
+
 def parse_generic_lines(stdout: str, source: str, tag: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for raw in stdout.splitlines():
@@ -363,6 +441,8 @@ def parse_output(tool: str, output_dir: Path, stdout: str) -> list[dict[str, Any
         return parse_subfinder(output_dir, stdout)
     if parser_name == "amass":
         return parse_amass(output_dir, stdout)
+    if parser_name == "phoneinfoga":
+        return parse_phoneinfoga(output_dir, stdout)
     return parse_generic_lines(stdout, source=tool.title(), tag=tool)
 
 

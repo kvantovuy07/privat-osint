@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Role } from "@prisma/client";
 
 import { logoutAction } from "@/actions/auth";
+import { AmbientOsintSignals } from "@/components/ambient-osint-signals";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { getDictionary } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
@@ -45,8 +46,9 @@ export async function AppShell({
       : navLinks.find((link) => link.key === current)?.label || current;
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(15,185,129,0.18),transparent_30%),linear-gradient(180deg,#030606_0%,#020303_100%)] text-white">
-      <div className="mx-auto grid min-h-screen max-w-[1600px] lg:grid-cols-[280px_1fr]">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,rgba(15,185,129,0.18),transparent_30%),linear-gradient(180deg,#030606_0%,#020303_100%)] text-white">
+      <AmbientOsintSignals />
+      <div className="relative z-10 mx-auto grid min-h-screen max-w-[1600px] lg:grid-cols-[280px_1fr]">
         <aside className="border-r border-white/5 bg-black/30 px-6 py-8 backdrop-blur">
           <div className="rounded-[1.75rem] border border-emerald-400/15 bg-emerald-400/6 p-5 shadow-[0_0_80px_rgba(16,185,129,0.05)]">
             <p className="text-xs uppercase tracking-[0.4em] text-emerald-200/70">
@@ -127,7 +129,7 @@ export async function AppShell({
           </div>
         </aside>
 
-        <main className="px-6 py-8 md:px-8">
+        <main className="relative px-6 py-8 md:px-8">
           <header className="mb-8 flex flex-col gap-4 rounded-[1.75rem] border border-white/10 bg-black/25 px-6 py-5 backdrop-blur md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-emerald-200/70">

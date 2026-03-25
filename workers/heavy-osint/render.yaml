@@ -21,3 +21,7 @@ services:
         sync: false
       - key: SPIDERFOOT_COMMAND
         sync: false
+      - key: PHONEINFOGA_COMMAND
+        sync: false
+      - key: OCTOSUITE_COMMAND
+        sync: false
