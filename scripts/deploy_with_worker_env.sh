@@ -3,8 +3,22 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRETS_DIR="${ROOT_DIR}/../.secrets"
-WORKER_URL_FILE="${WORKER_URL_FILE:-${SECRETS_DIR}/render_worker_url.txt}"
-WORKER_TOKEN_FILE="${WORKER_TOKEN_FILE:-${SECRETS_DIR}/render_worker_token.txt}"
+
+if [[ -z "${WORKER_URL_FILE:-}" ]]; then
+  if [[ -f "${SECRETS_DIR}/huggingface_worker_url.txt" ]]; then
+    WORKER_URL_FILE="${SECRETS_DIR}/huggingface_worker_url.txt"
+  else
+    WORKER_URL_FILE="${SECRETS_DIR}/render_worker_url.txt"
+  fi
+fi
+
+if [[ -z "${WORKER_TOKEN_FILE:-}" ]]; then
+  if [[ -f "${SECRETS_DIR}/huggingface_worker_token.txt" ]]; then
+    WORKER_TOKEN_FILE="${SECRETS_DIR}/huggingface_worker_token.txt"
+  else
+    WORKER_TOKEN_FILE="${SECRETS_DIR}/render_worker_token.txt"
+  fi
+fi
 
 if [[ ! -f "${WORKER_URL_FILE}" ]]; then
   echo "Worker URL file not found: ${WORKER_URL_FILE}" >&2

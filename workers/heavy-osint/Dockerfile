@@ -13,7 +13,12 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir "pip<24.1" \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir sherlock-project maigret theHarvester
+    && pip install --no-cache-dir uv sherlock-project maigret \
+    && git clone --depth=1 https://github.com/laramies/theHarvester /opt/theHarvester \
+    && cd /opt/theHarvester \
+    && uv sync --locked --no-dev --no-cache \
+    && printf '%s\n' '#!/usr/bin/env bash' 'cd /opt/theHarvester && exec uv run theHarvester "$@"' > /usr/local/bin/theHarvester \
+    && chmod +x /usr/local/bin/theHarvester
 
 COPY app ./app
 

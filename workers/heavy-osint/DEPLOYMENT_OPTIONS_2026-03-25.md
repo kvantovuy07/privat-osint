@@ -25,7 +25,34 @@ These still need host-level binaries or a custom image layer if you want them li
 - `Octosuite`
 - optional `SpiderFoot` wrapper
 
-## Best Current Path
+## Best No-Card Path
+
+`Hugging Face Spaces` is currently the best no-card option for a first external worker:
+
+- `Docker Spaces` let us ship the existing `Dockerfile` with minimal changes.
+- Free `CPU Basic` is enough for a lightweight HTTP worker.
+- `Secrets` let us keep `OSINT_WORKER_TOKEN` outside the repo.
+- The main tradeoff is sleep / cold starts and a less suitable environment for DNS-heavy tooling.
+
+Official references:
+
+- https://huggingface.co/docs/hub/spaces-overview
+- https://huggingface.co/docs/hub/spaces-sdks-docker
+- https://huggingface.co/docs/hub/spaces-storage
+
+Fastest path in this repo:
+
+```bash
+printf '%s' 'hf_your_token_here' > /Users/dp/Desktop/Osint/.secrets/huggingface_token.txt
+chmod 600 /Users/dp/Desktop/Osint/.secrets/huggingface_token.txt
+
+cd /Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint
+./scripts/hf_space_deploy.sh
+```
+
+This creates or updates a Space, stores the repo id, and writes the resulting URL into `/Users/dp/Desktop/Osint/.secrets/huggingface_worker_url.txt`.
+
+## Best Current Paid/Test Path
 
 `Render` is the easiest zero-CLI path for a first external worker because:
 

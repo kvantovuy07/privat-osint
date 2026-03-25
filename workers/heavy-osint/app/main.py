@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -121,6 +122,18 @@ def serialize_item(source: str, type_name: str, title: str, subtitle: str = "", 
     }
 
 
+def infer_title_from_url(url: str, fallback: str = "Profile") -> str:
+    if not url:
+        return fallback
+    parsed = urlparse(url)
+    hostname = parsed.netloc.lower().split("@")[-1]
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    if not hostname:
+        return fallback
+    return hostname.split(".")[0] or fallback
+
+
 def collect_files(output_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
     return sorted(path for path in output_dir.rglob("*") if path.is_file() and path.suffix in suffixes)
 
@@ -133,8 +146,8 @@ def parse_sherlock(output_dir: Path, stdout: str) -> list[dict[str, Any]]:
         with file_path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
-                site = row.get("site") or row.get("Site") or "Site"
                 profile_url = row.get("url_user") or row.get("url") or row.get("URL") or ""
+                site = row.get("site") or row.get("Site") or row.get("name") or infer_title_from_url(profile_url, fallback="Site")
                 items.append(
                     serialize_item(
                         "Sherlock",
@@ -459,13 +472,46 @@ def run_tool(tool: str, query: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix=f"{tool}-") as temp_dir:
         output_dir = Path(temp_dir)
         command = build_command(template, query, output_dir)
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=240,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=240,
+                check=False,
+            )
+        except FileNotFoundError:
+            return {
+                "title": config["title"],
+                "description": f"{config['title']} could not start because the configured command was not found on the worker host.",
+                "items": [
+                    serialize_item(
+                        config["title"],
+                        "command-error",
+                        "Command not found",
+                        " ".join(command[:2]),
+                        "Install the tool on the worker or update the command template.",
+                        None,
+                        [tool, "worker-error"],
+                    )
+                ],
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "title": config["title"],
+                "description": f"{config['title']} timed out before producing a structured result.",
+                "items": [
+                    serialize_item(
+                        config["title"],
+                        "timeout",
+                        "Timed out",
+                        query,
+                        "The worker stopped waiting after 240 seconds.",
+                        None,
+                        [tool, "timeout"],
+                    )
+                ],
+            }
 
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""

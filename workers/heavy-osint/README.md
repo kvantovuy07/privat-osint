@@ -37,11 +37,37 @@ docker run --rm -p 8080:8080 --env-file .env privat-osint-heavy-worker
 
 ## One-file deploy options
 
+- `Hugging Face Spaces`: use [scripts/hf_space_deploy.sh](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/scripts/hf_space_deploy.sh)
 - `Fly.io`: use [fly.toml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/fly.toml)
 - `Render`: use [render.yaml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/render.yaml)
 - `Railway`: use [railway.toml](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/railway.toml)
 
-All three expect you to set the same runtime env vars from [.env.example](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/.env.example).
+All of these expect you to set the same runtime env vars from [.env.example](/Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint/.env.example).
+
+`Hugging Face Spaces` is the best no-card option for this worker because it supports `Docker Spaces`, free `CPU Basic`, and secrets. The quickest path is:
+
+```bash
+printf '%s' 'hf_your_token_here' > /Users/dp/Desktop/Osint/.secrets/huggingface_token.txt
+chmod 600 /Users/dp/Desktop/Osint/.secrets/huggingface_token.txt
+
+cd /Users/dp/Desktop/Osint/privat-osint/workers/heavy-osint
+./scripts/hf_space_deploy.sh
+```
+
+That script will:
+
+- create or update a Docker Space
+- upload this worker into it
+- set `OSINT_WORKER_TOKEN` as a Space secret
+- write the resulting worker URL into `/Users/dp/Desktop/Osint/.secrets/huggingface_worker_url.txt`
+
+Then the main app can be redeployed against that URL with:
+
+```bash
+WORKER_URL_FILE=/Users/dp/Desktop/Osint/.secrets/huggingface_worker_url.txt \
+WORKER_TOKEN_FILE=/Users/dp/Desktop/Osint/.secrets/huggingface_worker_token.txt \
+./scripts/deploy_with_worker_env.sh
+```
 
 ## Commands
 
