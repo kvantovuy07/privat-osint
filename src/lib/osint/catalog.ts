@@ -30,6 +30,7 @@ export type SearchItem = {
   description?: string;
   url?: string;
   tags?: string[];
+  dataTypes?: string[];
   details?: SearchDetail[];
 };
 
@@ -89,6 +90,28 @@ type ProfileProbe = {
   url: string;
   status: number;
   archivedPages?: number;
+};
+
+type SiteDocument = {
+  finalUrl: string;
+  origin: string;
+  html: string;
+};
+
+type SitePathKind =
+  | "about"
+  | "team"
+  | "contact"
+  | "hiring"
+  | "docs"
+  | "press"
+  | "partner"
+  | "security";
+
+type SiteLinkCandidate = {
+  url: string;
+  text: string;
+  kind: SitePathKind;
 };
 
 type BridgeConfig = {
@@ -594,6 +617,192 @@ function extractMatches(text: string, pattern: RegExp) {
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function rootHost(hostname: string) {
+  return hostname.replace(/^www\./i, "").toLowerCase();
+}
+
+function sameSiteHost(candidate: string, target: string) {
+  const normalizedCandidate = rootHost(candidate);
+  const normalizedTarget = rootHost(target);
+
+  return (
+    normalizedCandidate === normalizedTarget ||
+    normalizedCandidate.endsWith(`.${normalizedTarget}`) ||
+    normalizedTarget.endsWith(`.${normalizedCandidate}`)
+  );
+}
+
+async function fetchSiteDocument(domain: string): Promise<SiteDocument | null> {
+  for (const url of [`https://${domain}`, `http://${domain}`]) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        redirect: "follow",
+        signal: AbortSignal.timeout(9000),
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const html = await response.text();
+      if (!html) {
+        continue;
+      }
+
+      const finalUrl = response.url;
+      return {
+        finalUrl,
+        origin: new URL(finalUrl).origin,
+        html,
+      };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return null;
+}
+
+function classifySitePath(target: string, label: string): SitePathKind | null {
+  const text = `${target} ${label}`.toLowerCase();
+
+  if (/(partner|partners|integration|integrations|ecosystem|alliances?)/i.test(text)) {
+    return "partner";
+  }
+
+  if (/(contact|contacts|support|help|reach us|get in touch)/i.test(text)) {
+    return "contact";
+  }
+
+  if (/(career|careers|job|jobs|hiring|vacanc)/i.test(text)) {
+    return "hiring";
+  }
+
+  if (/(about|company|story|mission)/i.test(text)) {
+    return "about";
+  }
+
+  if (/(team|leadership|founders?|people)/i.test(text)) {
+    return "team";
+  }
+
+  if (/(docs|documentation|developer|api)/i.test(text)) {
+    return "docs";
+  }
+
+  if (/(press|news|media|blog)/i.test(text)) {
+    return "press";
+  }
+
+  if (/(security|trust|privacy|legal|compliance)/i.test(text)) {
+    return "security";
+  }
+
+  return null;
+}
+
+function humanizeSitePath(kind: SitePathKind, locale: Locale) {
+  if (locale === "ru") {
+    return {
+      about: "О компании",
+      team: "Команда",
+      contact: "Контакты",
+      hiring: "Карьера",
+      docs: "Документация",
+      press: "Пресса / блог",
+      partner: "Партнёры / интеграции",
+      security: "Безопасность / доверие",
+    }[kind];
+  }
+
+  return {
+    about: "About",
+    team: "Team",
+    contact: "Contact",
+    hiring: "Hiring",
+    docs: "Docs",
+    press: "Press / Blog",
+    partner: "Partners / Integrations",
+    security: "Security / Trust",
+  }[kind];
+}
+
+function extractSiteLinkCandidates(html: string, finalUrl: string): SiteLinkCandidate[] {
+  const baseUrl = new URL(finalUrl);
+  const candidates = Array.from(
+    html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi),
+  )
+    .map((match) => {
+      const href = match[1]?.trim();
+      const text = stripHtml(match[2] || "");
+
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+        return null;
+      }
+
+      try {
+        const resolved = new URL(href, finalUrl);
+
+        if (!/^https?:$/i.test(resolved.protocol)) {
+          return null;
+        }
+
+        if (!sameSiteHost(resolved.hostname, baseUrl.hostname)) {
+          return null;
+        }
+
+        const kind = classifySitePath(resolved.href, text);
+        if (!kind) {
+          return null;
+        }
+
+        return {
+          url: resolved.href.split("#")[0],
+          text,
+          kind,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as SiteLinkCandidate[];
+
+  return Array.from(
+    new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
+  ).slice(0, 8);
+}
+
+function extractExternalDomains(html: string, siteHostname: string) {
+  return uniqueValues(
+    Array.from(html.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi))
+      .map((match) => {
+        try {
+          return new URL(match[1]).hostname.replace(/^www\./i, "");
+        } catch {
+          return "";
+        }
+      })
+      .filter(
+        (hostname) =>
+          hostname &&
+          !sameSiteHost(hostname, siteHostname) &&
+          !/(linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|t\.me|github\.com)/i.test(
+            hostname,
+          ),
+      ),
+  ).slice(0, 6);
 }
 
 function canonicalizeUsername(query: string) {
@@ -1387,35 +1596,13 @@ async function searchDnsRecords(domain: string, locale: Locale): Promise<SearchI
 
 async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<SearchItem[]> {
   const dictionary = getDictionary(locale);
-  const httpsUrl = `https://${domain}`;
-  const httpUrl = `http://${domain}`;
+  const siteDocument = await fetchSiteDocument(domain);
 
-  let response: Response | null = null;
-  let html = "";
-
-  for (const url of [httpsUrl, httpUrl]) {
-    try {
-      response = await fetch(url, {
-        cache: "no-store",
-        redirect: "follow",
-        signal: AbortSignal.timeout(9000),
-      });
-
-      if (response.ok) {
-        html = await response.text();
-        break;
-      }
-    } catch {
-      // try the next candidate
-    }
-  }
-
-  if (!response || !response.ok || !html) {
+  if (!siteDocument) {
     return [];
   }
 
-  const finalUrl = response.url;
-  const origin = new URL(finalUrl).origin;
+  const { finalUrl, origin, html } = siteDocument;
   const title = extractMatch(html, /<title[^>]*>([^<]+)<\/title>/i);
   const description =
     extractMatch(
@@ -1471,6 +1658,10 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
       description: description || dictionary.searchResults.itemText.noMetaDescription,
       url: finalUrl,
       tags: ["seo", "metadata", "homepage"],
+      dataTypes:
+        locale === "ru"
+          ? ["SEO", "Контакты", "Соцссылки", "Статистика сайта"]
+          : ["SEO", "Contacts", "Social Links", "Site Statistics"],
       details: [
         {
           label: dictionary.searchResults.itemLabels.titleLength,
@@ -1510,6 +1701,171 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
         },
       ],
     },
+  ];
+}
+
+async function searchSitePathSignals(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const siteDocument = await fetchSiteDocument(domain);
+
+  if (!siteDocument) {
+    return [];
+  }
+
+  const { finalUrl, html } = siteDocument;
+  const internalLinks = Array.from(
+    new Set(
+      Array.from(html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi))
+        .map((match) => {
+          try {
+            const resolved = new URL(match[1], finalUrl);
+            if (!sameSiteHost(resolved.hostname, new URL(finalUrl).hostname)) {
+              return "";
+            }
+            return resolved.href.split("#")[0];
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean),
+    ),
+  );
+
+  const priorityLinks = extractSiteLinkCandidates(html, finalUrl);
+  if (priorityLinks.length === 0) {
+    return [];
+  }
+
+  const crawledPages = await Promise.allSettled(
+    priorityLinks.slice(0, 6).map(async (candidate) => {
+      const pageHtml = await fetchText(candidate.url);
+      const title = extractMatch(pageHtml, /<title[^>]*>([^<]+)<\/title>/i);
+      const emails = uniqueValues(
+        extractMatches(pageHtml, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi),
+      ).slice(0, 4);
+      const phones = uniqueValues(
+        extractMatches(pageHtml, /(\+?\d[\d().\s-]{7,}\d)/g),
+      ).slice(0, 4);
+      const externalDomains = extractExternalDomains(pageHtml, new URL(finalUrl).hostname);
+
+      return {
+        ...candidate,
+        title,
+        emails,
+        phones,
+        externalDomains,
+      };
+    }),
+  );
+
+  const fulfilledPages = crawledPages
+    .flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+
+  if (fulfilledPages.length === 0) {
+    return [];
+  }
+
+  const partnerPages = fulfilledPages.filter((page) => page.kind === "partner");
+  const contactPages = fulfilledPages.filter((page) => page.kind === "contact");
+  const hiringPages = fulfilledPages.filter((page) => page.kind === "hiring");
+  const docsPages = fulfilledPages.filter((page) => page.kind === "docs");
+  const ecosystemDomains = uniqueValues(
+    fulfilledPages.flatMap((page) => page.externalDomains),
+  ).slice(0, 6);
+
+  return [
+    {
+      id: `site-discovery-${domain}`,
+      source: locale === "ru" ? "Исследование сайта" : "Site Discovery",
+      type: "path-intelligence",
+      title: domain,
+      subtitle:
+        locale === "ru"
+          ? "Автоматически исследованы полезные внутренние пути"
+          : "Useful internal paths were auto-investigated",
+      description:
+        locale === "ru"
+          ? "Сайт был доисследован по приоритетным путям: контакты, команда, партнёры, карьера, безопасность и документация."
+          : "The site was expanded through priority paths: contact, team, partners, hiring, security, and documentation.",
+      tags: ["autopivot", "site-research", "follow-up"],
+      dataTypes:
+        locale === "ru"
+          ? ["Пути сайта", "Статистика", "Контакты", "Партнёрства"]
+          : ["Site Paths", "Statistics", "Contacts", "Partnerships"],
+      details: [
+        {
+          label: locale === "ru" ? "Найдено внутренних ссылок" : "Internal links found",
+          value: String(internalLinks.length),
+        },
+        {
+          label: locale === "ru" ? "Исследовано приоритетных страниц" : "Priority pages investigated",
+          value: String(fulfilledPages.length),
+        },
+        {
+          label: locale === "ru" ? "Страницы партнёров / интеграций" : "Partner / integration pages",
+          value: String(partnerPages.length),
+        },
+        {
+          label: locale === "ru" ? "Контактные страницы" : "Contact pages",
+          value: String(contactPages.length),
+        },
+        {
+          label: locale === "ru" ? "Страницы карьеры" : "Hiring pages",
+          value: String(hiringPages.length),
+        },
+        {
+          label: locale === "ru" ? "Документация / API" : "Docs / API pages",
+          value: String(docsPages.length),
+        },
+        {
+          label: locale === "ru" ? "Домены экосистемы" : "Ecosystem domains",
+          value: ecosystemDomains.join(", ") || dictionary.common.notFound,
+        },
+      ],
+    },
+    ...fulfilledPages.map((page, index) => ({
+      id: `site-discovery-page-${index}`,
+      source: locale === "ru" ? "Исследование сайта" : "Site Discovery",
+      type: `${page.kind}-page`,
+      title: page.title || page.text || page.url,
+      subtitle: page.url,
+      description:
+        locale === "ru"
+          ? `Найдена страница типа: ${humanizeSitePath(page.kind, locale)}`
+          : `Detected page type: ${humanizeSitePath(page.kind, locale)}`,
+      url: page.url,
+      tags: ["autopivot", page.kind, "site-path"],
+      dataTypes:
+        page.kind === "partner"
+          ? locale === "ru"
+            ? ["Партнёрства", "Коллаборации", "Внешние домены"]
+            : ["Partnerships", "Collaborations", "External Domains"]
+          : page.kind === "contact"
+            ? locale === "ru"
+              ? ["Контакты", "Email", "Телефон"]
+              : ["Contacts", "Email", "Phone"]
+            : locale === "ru"
+              ? ["Пути сайта", "Статистика", humanizeSitePath(page.kind, locale)]
+              : ["Site Paths", "Statistics", humanizeSitePath(page.kind, locale)],
+      details: [
+        {
+          label: locale === "ru" ? "Тип страницы" : "Page type",
+          value: humanizeSitePath(page.kind, locale),
+        },
+        {
+          label: locale === "ru" ? "Email" : "Emails",
+          value: page.emails.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Телефоны" : "Phones",
+          value: page.phones.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Внешние домены" : "External domains",
+          value: page.externalDomains.join(", ") || dictionary.common.notFound,
+        },
+      ],
+    })),
   ];
 }
 
@@ -2273,6 +2629,22 @@ export async function runUnifiedSearch(
           "Website Metadata",
           dictionary.searchResults.sections.webMetadataTitle,
           dictionary.searchResults.sections.webMetadataDescription,
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchSitePathSignals(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          locale === "ru" ? "Исследование сайта" : "Site Discovery",
+          locale === "ru" ? "Пути сайта и бизнес-сигналы" : "Site Paths and Business Signals",
+          locale === "ru"
+            ? "Автоматическое доисследование внутренних страниц сайта: партнёры, контакты, карьера, документация и другие полезные пути."
+            : "Automatic follow-up research across internal site paths: partners, contacts, hiring, docs, and other useful pivots.",
           items,
         );
       })(),

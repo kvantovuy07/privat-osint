@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { useLocale } from "@/components/locale-provider";
@@ -25,7 +24,7 @@ export function LanguageSwitcher({
       {(["en", "ru"] as const).map((code) => {
         const active = locale === code;
         return (
-          <Link
+          <a
             key={code}
             href={`/api/locale?locale=${code}&redirectTo=${encodeURIComponent(redirectTo)}`}
             className={`rounded-full px-3 py-1.5 font-medium transition ${
@@ -35,7 +34,7 @@ export function LanguageSwitcher({
             }`}
           >
             {dictionary.language[code]}
-          </Link>
+          </a>
         );
       })}
     </div>

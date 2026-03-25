@@ -77,13 +77,18 @@ export function LoginForm() {
 
   return (
     <form action={formAction} className="grid gap-4">
-      <Input label={dictionary.loginForm.login} name="username" required placeholder="Mentor" />
+      <Input
+        label={dictionary.loginForm.login}
+        name="username"
+        required
+        placeholder="Username"
+      />
       <Input
         label={dictionary.loginForm.password}
         name="password"
         type="password"
         required
-        placeholder="••••••••••"
+        placeholder="Password"
       />
       <StatusMessage status={state.status} message={state.message} />
       <PendingButton

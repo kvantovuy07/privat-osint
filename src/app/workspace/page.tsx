@@ -23,7 +23,7 @@ export default async function WorkspacePage() {
       user={user}
       pendingRequestsCount={pendingRequestsCount}
     >
-      <SearchConsole />
+      <SearchConsole key={locale} />
     </AppShell>
   );
 }

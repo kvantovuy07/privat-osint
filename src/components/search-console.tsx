@@ -19,6 +19,99 @@ function formatItemType(type: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function deriveDataTypes(
+  item: {
+    source: string;
+    type: string;
+    title: string;
+    subtitle?: string;
+    description?: string;
+    tags?: string[];
+    dataTypes?: string[];
+    details?: Array<{ label: string; value: string }>;
+  },
+  locale: "en" | "ru",
+) {
+  if (item.dataTypes?.length) {
+    return item.dataTypes;
+  }
+
+  const haystack = [
+    item.source,
+    item.type,
+    item.title,
+    item.subtitle || "",
+    item.description || "",
+    ...(item.tags || []),
+    ...((item.details || []).flatMap((detail) => [detail.label, detail.value])),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const labels = [
+    {
+      pattern: /(email|mail|gravatar|avatar|local part|homepage emails)/i,
+      value: locale === "ru" ? "Email" : "Email",
+    },
+    {
+      pattern: /(phone|телефон|calling code|national format|homepage phones)/i,
+      value: locale === "ru" ? "Телефон" : "Phone",
+    },
+    {
+      pattern: /(name|person|имя|фамилия|initials)/i,
+      value: locale === "ru" ? "Имя" : "Name",
+    },
+    {
+      pattern: /(username|profile|handle|followers|following|public repos)/i,
+      value: locale === "ru" ? "Профиль" : "Profile",
+    },
+    {
+      pattern: /(github|repository|repo|stars|language)/i,
+      value: locale === "ru" ? "Код / репозиторий" : "Code / Repository",
+    },
+    {
+      pattern: /(company|registry|jurisdiction|lei|cik|ticker|officer|incorporation)/i,
+      value: locale === "ru" ? "Компания / реестр" : "Company / Registry",
+    },
+    {
+      pattern: /(domain|dns|rdap|nameserver|subdomain|certificate|security\.txt|robots|sitemap|canonical)/i,
+      value: locale === "ru" ? "Домен / инфраструктура" : "Domain / Infrastructure",
+    },
+    {
+      pattern: /(\bip\b|dns-a|dns-aaaa|cname)/i,
+      value: locale === "ru" ? "IP / сеть" : "IP / Network",
+    },
+    {
+      pattern: /(seo|metadata|title length|description length|h1|social links)/i,
+      value: "SEO",
+    },
+    {
+      pattern: /(archive|wayback|capture|historical)/i,
+      value: locale === "ru" ? "Архив" : "Archive",
+    },
+    {
+      pattern: /(partner|integration|ecosystem|collaboration|collab|external domains)/i,
+      value: locale === "ru" ? "Партнёрства" : "Partnerships",
+    },
+    {
+      pattern: /(contact|contacts|policy|email|phone|social)/i,
+      value: locale === "ru" ? "Контакты" : "Contacts",
+    },
+    {
+      pattern: /(statistics|score|record count|pages|followers|updated|count)/i,
+      value: locale === "ru" ? "Статистика" : "Statistics",
+    },
+  ];
+
+  return uniqueValues(
+    labels.filter((entry) => entry.pattern.test(haystack)).map((entry) => entry.value),
+  ).slice(0, 5);
+}
+
 function SearchStateNotice({
   status,
   message,
@@ -44,7 +137,7 @@ function SearchStateNotice({
 }
 
 export function SearchConsole() {
-  const { dictionary } = useLocale();
+  const { dictionary, locale } = useLocale();
   const [searchState, searchAction] = useActionState(
     runSearchAction,
     initialSearchState,
@@ -210,6 +303,23 @@ export function SearchConsole() {
                               {tag}
                             </span>
                           ))}
+                        </div>
+                      ) : null}
+                      {deriveDataTypes(item, locale).length ? (
+                        <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.3em] text-zinc-500">
+                            {locale === "ru" ? "Типы данных" : "Data Types"}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {deriveDataTypes(item, locale).map((dataType) => (
+                              <span
+                                key={`${item.id}-${dataType}`}
+                                className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-xs text-sky-100"
+                              >
+                                {dataType}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                       {item.details?.length ? (
