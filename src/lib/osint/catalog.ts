@@ -183,6 +183,17 @@ type BridgeConfig = {
   description: string;
 };
 
+type BridgeInvocation = {
+  query: string;
+  inferredType: QueryKind;
+  matchKind: MatchKind;
+  confidence: ConfidenceLevel;
+  verificationStatus: VerificationStatus;
+  verificationNote: string;
+  matchNote: string;
+  detail?: SearchDetail;
+};
+
 const bridgeConfigs: BridgeConfig[] = [
   {
     id: "sherlock-bridge",
@@ -1567,12 +1578,25 @@ async function searchPersonGithubCandidates(
   return Array.from(deduped.values()).slice(0, 8);
 }
 
-function normalizeBridgeItem(toolName: string, item: SearchItem, index: number): SearchItem {
+function normalizeBridgeItem(
+  toolName: string,
+  item: SearchItem,
+  index: number,
+  invocation: BridgeInvocation,
+): SearchItem {
   return {
     ...item,
     id: item.id || `${toolName}-${index}`,
     source: item.source || toolName,
     tags: item.tags || [toolName.toLowerCase(), "worker"],
+    confidence: item.confidence || invocation.confidence,
+    verificationStatus: item.verificationStatus || invocation.verificationStatus,
+    verificationNote: item.verificationNote || invocation.verificationNote,
+    matchKind: item.matchKind || invocation.matchKind,
+    matchNote: item.matchNote || invocation.matchNote,
+    details: invocation.detail
+      ? [invocation.detail, ...(item.details || [])]
+      : item.details,
   };
 }
 
@@ -1580,6 +1604,7 @@ async function callToolBridge(
   config: BridgeConfig,
   query: string,
   inferredType: QueryKind,
+  invocation: BridgeInvocation,
 ): Promise<SearchSection | null> {
   const bridgeUrl = process.env[config.urlEnv];
 
@@ -1604,7 +1629,7 @@ async function callToolBridge(
       query,
       type: inferredType,
     }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(60000),
   });
 
   if (!response.ok) {
@@ -1623,8 +1648,227 @@ async function callToolBridge(
     description:
       data.description || `Results returned by the configured ${config.name} worker.`,
     items: (data.items || []).map((item, index) =>
-      normalizeBridgeItem(config.name, item, index),
+      normalizeBridgeItem(config.name, item, index, invocation),
     ),
+  };
+}
+
+function bridgeInvocationsForQuery(
+  config: BridgeConfig,
+  query: string,
+  inferredType: QueryKind,
+  keywordLooksLikeHandle: boolean,
+  locale: Locale,
+): BridgeInvocation[] {
+  const directInvocation = (override?: Partial<BridgeInvocation>): BridgeInvocation => ({
+    query,
+    inferredType,
+    matchKind: "direct",
+    confidence: "medium",
+    verificationStatus: "likely",
+    verificationNote:
+      locale === "ru"
+        ? `Результат вернул настроенный ${config.name} worker по прямому запросу.`
+        : `The configured ${config.name} worker returned this result for the direct query.`,
+    matchNote:
+      locale === "ru"
+        ? "Инструмент был вызван напрямую от исходного поискового ввода."
+        : "The tool was called directly from the original search input.",
+    ...override,
+  });
+
+  if (config.id === "sherlock-bridge" || config.id === "maigret-bridge") {
+    if (inferredType === "username" || keywordLooksLikeHandle) {
+      const username = canonicalizeUsername(query);
+      return username
+        ? [
+            directInvocation({
+              query: username,
+              inferredType: "username",
+            }),
+          ]
+        : [];
+    }
+
+    if (inferredType === "person") {
+      const identity = buildPersonIdentity(query);
+      if (!identity) {
+        return [];
+      }
+
+      return identity.usernameVariants.slice(0, 2).map((candidate) =>
+        directInvocation({
+          query: candidate,
+          inferredType: "username",
+          matchKind: "derived",
+          confidence: "low",
+          verificationStatus: "candidate",
+          verificationNote:
+            locale === "ru"
+              ? `Результат вернул ${config.name} worker по username-варианту, выведенному из имени.`
+              : `${config.name} returned this result from a username variant derived from the person's name.`,
+          matchNote:
+            locale === "ru"
+              ? "Это производный pivot по имени и фамилии, а не прямой идентификатор."
+              : "This is a derived pivot from the person's name, not a direct identifier.",
+          detail: {
+            label: locale === "ru" ? "Username-кандидат" : "Username candidate",
+            value: candidate,
+          },
+        }),
+      );
+    }
+
+    return [];
+  }
+
+  if (config.id === "theharvester-bridge") {
+    if (inferredType === "domain") {
+      const domain = safeDomainFromQuery(query);
+      return domain
+        ? [
+            directInvocation({
+              query: domain,
+              inferredType: "domain",
+            }),
+          ]
+        : [];
+    }
+
+    if (inferredType === "email") {
+      const { domain } = parseEmailQuery(query);
+      return domain
+        ? [
+            directInvocation({
+              query: domain,
+              inferredType: "domain",
+              matchKind: "derived",
+              confidence: "medium",
+              verificationStatus: "likely",
+              verificationNote:
+                locale === "ru"
+                  ? `Результат вернул ${config.name} worker по домену, выведенному из email.`
+                  : `${config.name} returned this result from the domain derived out of the email address.`,
+              matchNote:
+                locale === "ru"
+                  ? "Инструмент вызван по домену email, а не по полному почтовому адресу."
+                  : "The tool was called on the email domain, not the full mailbox.",
+              detail: {
+                label: locale === "ru" ? "Производный домен" : "Derived domain",
+                value: domain,
+              },
+            }),
+          ]
+        : [];
+    }
+
+    return [];
+  }
+
+  if (config.id === "subfinder-bridge" || config.id === "amass-bridge") {
+    if (inferredType !== "domain") {
+      return [];
+    }
+
+    const domain = safeDomainFromQuery(query);
+    return domain
+      ? [
+          directInvocation({
+            query: domain,
+            inferredType: "domain",
+          }),
+        ]
+      : [];
+  }
+
+  if (config.id === "phoneinfoga-bridge") {
+    if (inferredType !== "phone") {
+      return [];
+    }
+
+    return [directInvocation()];
+  }
+
+  if (config.id === "octosuite-bridge") {
+    if (inferredType === "repository") {
+      return [
+        directInvocation({
+          query: query.replace(/^https?:\/\/github\.com\//i, ""),
+          inferredType: "repository",
+        }),
+      ];
+    }
+
+    if (keywordLooksLikeHandle) {
+      return [
+        directInvocation({
+          query: canonicalizeUsername(query),
+          inferredType: "username",
+        }),
+      ];
+    }
+
+    if (config.queryKinds.includes(inferredType)) {
+      return [directInvocation()];
+    }
+
+    return [];
+  }
+
+  if (config.id === "spiderfoot-bridge") {
+    if (inferredType === "domain") {
+      const domain = safeDomainFromQuery(query);
+      return domain
+        ? [
+            directInvocation({
+              query: domain,
+              inferredType: "domain",
+            }),
+          ]
+        : [];
+    }
+
+    if (keywordLooksLikeHandle) {
+      return [
+        directInvocation({
+          query: canonicalizeUsername(query),
+          inferredType: "username",
+        }),
+      ];
+    }
+  }
+
+  return config.queryKinds.includes(inferredType) ? [directInvocation()] : [];
+}
+
+function mergeBridgeSections(
+  config: BridgeConfig,
+  sections: SearchSection[],
+  locale: Locale,
+): SearchSection | null {
+  const items = new Map<string, SearchItem>();
+  for (const section of sections) {
+    for (const item of section.items) {
+      const key = item.url || `${item.source}|${item.title}|${item.subtitle || ""}`;
+      if (!items.has(key)) {
+        items.set(key, item);
+      }
+    }
+  }
+
+  const mergedItems = Array.from(items.values()).slice(0, 40);
+  if (mergedItems.length === 0) {
+    return null;
+  }
+
+  return {
+    id: config.id,
+    title: config.name.replace(" Bridge", ""),
+    description:
+      locale === "ru"
+        ? `Результаты из подключённого ${config.name.replace(" Bridge", "")} worker.`
+        : `Results returned by the connected ${config.name.replace(" Bridge", "")} worker.`,
+    items: mergedItems,
   };
 }
 
@@ -5024,16 +5268,47 @@ export async function runUnifiedSearch(
   }
 
   for (const config of bridgeConfigs) {
-    if (!config.queryKinds.includes(inferredType) || !process.env[config.urlEnv]) {
+    if (!process.env[config.urlEnv]) {
+      continue;
+    }
+
+    const invocations = bridgeInvocationsForQuery(
+      config,
+      normalizedQuery,
+      inferredType,
+      keywordLooksLikeHandle,
+      locale,
+    );
+
+    if (invocations.length === 0) {
       continue;
     }
 
     tasks.push(
       (async () => {
-        const section = await callToolBridge(config, normalizedQuery, inferredType);
-        if (section && section.items.length > 0) {
+        const results = await Promise.allSettled(
+          invocations.map((invocation) =>
+            callToolBridge(config, invocation.query, invocation.inferredType, invocation),
+          ),
+        );
+
+        const successfulSections = results
+          .filter(
+            (result): result is PromiseFulfilledResult<SearchSection | null> =>
+              result.status === "fulfilled",
+          )
+          .map((result) => result.value)
+          .filter((section): section is SearchSection => Boolean(section && section.items.length > 0));
+
+        const mergedSection = mergeBridgeSections(config, successfulSections, locale);
+        if (mergedSection) {
           usedSources.add(config.name);
-          sections.push(section);
+          sections.push(mergedSection);
+        }
+
+        const rejection = results.find((result) => result.status === "rejected");
+        if (rejection && successfulSections.length === 0) {
+          throw rejection.reason;
         }
       })(),
     );
