@@ -1,6 +1,5 @@
-import "server-only";
-
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
@@ -9,6 +8,7 @@ import { formatMessage, getDictionary, type Locale } from "@/lib/i18n";
 export type QueryKind =
   | "company"
   | "domain"
+  | "ip"
   | "username"
   | "email"
   | "repository"
@@ -87,6 +87,9 @@ export type HeavyToolGuide = {
 
 const SEC_USER_AGENT =
   process.env.SEC_USER_AGENT || "Privat-OSINT/1.0 research@privat-osint.local";
+
+const BROWSERLIKE_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Privat-OSINT/1.0";
 
 type WaybackSummary = {
   pageCount: number;
@@ -168,6 +171,11 @@ type SiteLinkCandidate = {
   url: string;
   text: string;
   kind: SitePathKind;
+};
+
+type SocialProfileSignal = {
+  platform: string;
+  url: string;
 };
 
 type DnsRecordType = "A" | "AAAA" | "MX" | "NS" | "TXT" | "CNAME";
@@ -421,7 +429,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "live",
     description: "Official GitHub public repository search for repos, code footprints, and org activity.",
     officialUrl: "https://docs.github.com/en/rest/search/search#search-repositories",
-    queryKinds: ["company", "domain", "repository", "keyword", "username"],
+    queryKinds: ["company", "repository", "keyword", "username"],
   },
   {
     id: "wayback",
@@ -448,7 +456,7 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "live",
     description: "Registration and lifecycle data for public domains through RDAP.",
     officialUrl: "https://rdap.org/",
-    queryKinds: ["domain"],
+    queryKinds: ["domain", "ip"],
   },
   {
     id: "dns-over-https",
@@ -466,7 +474,34 @@ export const connectorCatalog: ConnectorCatalogItem[] = [
     status: "live",
     description: "Public IP, prefix, and ASN intelligence for hosting and provider mapping.",
     officialUrl: "https://stat.ripe.net/",
-    queryKinds: ["domain"],
+    queryKinds: ["domain", "ip"],
+  },
+  {
+    id: "public-site-contacts",
+    name: "Public Site Contacts",
+    category: "Identity",
+    status: "live",
+    description: "Public contacts, social profiles, legal identifiers, and address hints extracted from the target site.",
+    officialUrl: "https://schema.org/",
+    queryKinds: ["domain", "email"],
+  },
+  {
+    id: "technology-signals",
+    name: "Technology Signals",
+    category: "Technical Footprint",
+    status: "live",
+    description: "Framework, analytics, support widgets, and deployment hints extracted from the target site.",
+    officialUrl: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers",
+    queryKinds: ["domain", "email"],
+  },
+  {
+    id: "urlscan-search",
+    name: "urlscan Search",
+    category: "Technical Footprint",
+    status: "live",
+    description: "Public scan results tied to an IP from urlscan's search API.",
+    officialUrl: "https://urlscan.io/docs/api/",
+    queryKinds: ["ip"],
   },
   {
     id: "website-metadata",
@@ -700,6 +735,10 @@ export function inferQueryKind(input: string): QueryKind {
     return "domain";
   }
 
+  if (isIP(query.replace(/^\[|\]$/g, ""))) {
+    return "ip";
+  }
+
   if (/^\+\d[\d\s().-]{6,}$/.test(query)) {
     return "phone";
   }
@@ -763,8 +802,23 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 async function fetchText(url: string, init?: RequestInit): Promise<string> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("User-Agent")) {
+    headers.set("User-Agent", BROWSERLIKE_USER_AGENT);
+  }
+  if (!headers.has("Accept-Language")) {
+    headers.set("Accept-Language", "en-US,en;q=0.9");
+  }
+  if (!headers.has("Accept")) {
+    headers.set(
+      "Accept",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+    );
+  }
+
   const response = await fetch(url, {
     ...init,
+    headers,
     cache: "no-store",
     redirect: "follow",
     signal: AbortSignal.timeout(9000),
@@ -786,6 +840,7 @@ export function humanizeQueryKind(kind: QueryKind, locale: Locale) {
     return {
       company: "Компания",
       domain: "Домен",
+      ip: "IP",
       username: "Username",
       email: "Email",
       repository: "Репозиторий",
@@ -793,6 +848,10 @@ export function humanizeQueryKind(kind: QueryKind, locale: Locale) {
       keyword: "Ключевое слово",
       phone: "Телефон",
     }[kind];
+  }
+
+  if (kind === "ip") {
+    return "IP";
   }
 
   return toTitleCase(kind);
@@ -854,6 +913,11 @@ function sameSiteHost(candidate: string, target: string) {
     normalizedCandidate.endsWith(`.${normalizedTarget}`) ||
     normalizedTarget.endsWith(`.${normalizedCandidate}`)
   );
+}
+
+function safeIpFromQuery(query: string) {
+  const normalized = query.trim().replace(/^\[|\]$/g, "");
+  return isIP(normalized) ? normalized : "";
 }
 
 function normalizeUrlForKey(url?: string) {
@@ -992,6 +1056,12 @@ async function fetchSiteDocument(domain: string): Promise<SiteDocument | null> {
         cache: "no-store",
         redirect: "follow",
         signal: AbortSignal.timeout(9000),
+        headers: {
+          "User-Agent": BROWSERLIKE_USER_AGENT,
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        },
       });
 
       if (!response.ok) {
@@ -1025,6 +1095,12 @@ async function fetchSiteResponseMeta(domain: string): Promise<SiteResponseMeta |
         cache: "no-store",
         redirect: "follow",
         signal: AbortSignal.timeout(9000),
+        headers: {
+          "User-Agent": BROWSERLIKE_USER_AGENT,
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        },
       });
 
       if (!response.ok || response.status === 405) {
@@ -1033,6 +1109,12 @@ async function fetchSiteResponseMeta(domain: string): Promise<SiteResponseMeta |
           cache: "no-store",
           redirect: "follow",
           signal: AbortSignal.timeout(9000),
+          headers: {
+            "User-Agent": BROWSERLIKE_USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          },
         });
       }
 
@@ -1182,6 +1264,163 @@ function extractExternalDomains(html: string, siteHostname: string) {
           ),
       ),
   ).slice(0, 6);
+}
+
+function extractAddressCandidates(text: string) {
+  const normalized = text.replace(/\s+/g, " ");
+  const matches = extractMatches(
+    normalized,
+    /(?:registered office|headquarters|head office|office address|business address|mailing address|address:)\s*([A-Z0-9][A-Za-z0-9.'’\- ]{4,80},\s*[A-Za-z0-9.'’\- ]{2,80}(?:,\s*[A-Za-z0-9.'’\- ]{2,80}){1,3})/gi,
+  )
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .filter((value) => value.length >= 12 && value.length <= 160)
+    .filter((value) => /\d/.test(value))
+    .filter((value) => value.includes(","))
+    .filter((value) => !/(privacy|terms|cookie|policy|support|contact us)/i.test(value));
+
+  return uniqueValues(matches).slice(0, 6);
+}
+
+function extractLegalIdentifiers(text: string) {
+  const normalized = text.replace(/\s+/g, " ");
+  const companyNumbers = uniqueValues(
+    extractMatches(
+      normalized,
+      /(?:company(?:\s+registration)?(?:\s+number)?|registration(?:\s+number)?|reg(?:istered)?\.?\s*no\.?)[:#\s-]*([A-Z0-9-]*\d[A-Z0-9-]{4,19})/gi,
+    ),
+  ).slice(0, 6);
+
+  const vatNumbers = uniqueValues(
+    extractMatches(
+      normalized,
+      /(?:VAT(?:\s+(?:no\.?|number))?|Tax ID|TIN|EIN|CIF|NIF|IVA|GST(?:IN)?)[:#\s-]*([A-Z]{0,3}[A-Z0-9-]*\d[A-Z0-9-]{5,19})/gi,
+    ),
+  ).slice(0, 6);
+
+  const leis = uniqueValues(
+    extractMatches(normalized, /\b([A-Z0-9]{18}[0-9]{2})\b/g),
+  ).slice(0, 4);
+
+  return {
+    companyNumbers,
+    vatNumbers,
+    leis,
+  };
+}
+
+function extractPhoneCandidates(text: string) {
+  return uniqueValues(
+    extractMatches(text, /(\+?\d[\d()\s-]{7,}\d)/g)
+      .map((value) => value.replace(/\s+/g, " ").trim())
+      .filter((value) => {
+        const digits = value.replace(/\D/g, "");
+        if (digits.length < 10 || digits.length > 15) {
+          return false;
+        }
+
+        if (/^\d{4}-\d{4,8}$/.test(value)) {
+          return false;
+        }
+
+        const separatorCount = (value.match(/[\s().-]/g) || []).length;
+        return value.startsWith("+") || separatorCount >= 2;
+      }),
+  ).slice(0, 8);
+}
+
+function extractEmailCandidates(text: string) {
+  return uniqueValues(
+    extractMatches(text, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi).filter((value) => {
+      const normalized = value.toLowerCase();
+      if (/\.(png|jpe?g|gif|svg|webp|avif|mp4|webm|pdf)$/i.test(normalized)) {
+        return false;
+      }
+
+      const [, domain = ""] = normalized.split("@");
+      const labels = domain.split(".");
+      const secondLevel = labels.at(-2) || "";
+      if (secondLevel.length < 3 && /^\d/.test(secondLevel)) {
+        return false;
+      }
+
+      return true;
+    }),
+  ).slice(0, 8);
+}
+
+function extractSocialProfiles(html: string, finalUrl: string) {
+  const platformRules: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /linkedin\.com/i, label: "LinkedIn" },
+    { pattern: /twitter\.com|x\.com/i, label: "X / Twitter" },
+    { pattern: /github\.com/i, label: "GitHub" },
+    { pattern: /gitlab\.com/i, label: "GitLab" },
+    { pattern: /facebook\.com/i, label: "Facebook" },
+    { pattern: /instagram\.com/i, label: "Instagram" },
+    { pattern: /youtube\.com|youtu\.be/i, label: "YouTube" },
+    { pattern: /t\.me|telegram\.me/i, label: "Telegram" },
+    { pattern: /tiktok\.com/i, label: "TikTok" },
+    { pattern: /medium\.com/i, label: "Medium" },
+    { pattern: /substack\.com/i, label: "Substack" },
+    { pattern: /crunchbase\.com/i, label: "Crunchbase" },
+    { pattern: /wellfound\.com|angel\.co/i, label: "Wellfound" },
+    { pattern: /huggingface\.co/i, label: "Hugging Face" },
+    { pattern: /discord\.gg|discord\.com/i, label: "Discord" },
+  ];
+
+  const baseUrl = new URL(finalUrl);
+  const profiles = Array.from(html.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi))
+    .map((match) => match[1].trim())
+    .flatMap((href) => {
+      try {
+        const resolved = new URL(href, finalUrl);
+        if (!/^https?:$/i.test(resolved.protocol) || sameSiteHost(resolved.hostname, baseUrl.hostname)) {
+          return [];
+        }
+
+        const platform = platformRules.find((rule) => rule.pattern.test(resolved.hostname))?.label;
+        if (!platform) {
+          return [];
+        }
+
+        return [
+          {
+            platform,
+            url: resolved.href.split("#")[0],
+          } satisfies SocialProfileSignal,
+        ];
+      } catch {
+        return [];
+      }
+    });
+
+  return Array.from(
+    new Map(profiles.map((profile) => [normalizeUrlForKey(profile.url), profile])).values(),
+  ).slice(0, 10);
+}
+
+function detectTechnologySignals(html: string, headers: Headers) {
+  const haystack = `${html}\n${Array.from(headers.entries())
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n")}`.toLowerCase();
+
+  const detections = [
+    { label: "Next.js", category: "Framework", pattern: /__next_data__|\/_next\/|x-nextjs-cache/i },
+    { label: "React", category: "Framework", pattern: /data-reactroot|react-dom|react-hydration/i },
+    { label: "WordPress", category: "CMS", pattern: /wp-content|wp-json|wordpress/i },
+    { label: "Shopify", category: "Commerce", pattern: /cdn\.shopify\.com|shopify/i },
+    { label: "Webflow", category: "CMS", pattern: /webflow|webflow\.js/i },
+    { label: "HubSpot", category: "Marketing", pattern: /hs-script-loader|hubspot/i },
+    { label: "Segment", category: "Analytics", pattern: /segment\.com\/analytics|window\.analytics/i },
+    { label: "Google Analytics", category: "Analytics", pattern: /google-analytics\.com|gtag\(/i },
+    { label: "Google Tag Manager", category: "Analytics", pattern: /googletagmanager\.com\/gtm\.js|gtm.js/i },
+    { label: "Intercom", category: "Support", pattern: /widget\.intercom\.io|intercom/i },
+    { label: "Zendesk", category: "Support", pattern: /zdassets\.com|zendesk/i },
+    { label: "Stripe", category: "Payments", pattern: /js\.stripe\.com|stripe/i },
+    { label: "Cloudflare", category: "Infrastructure", pattern: /cf-ray|server:\s*cloudflare/i },
+    { label: "Vercel", category: "Infrastructure", pattern: /x-vercel-id|x-vercel-cache|vercel/i },
+  ];
+
+  return detections.filter((detection) => detection.pattern.test(haystack)).slice(0, 12);
 }
 
 function parseJsonSafely(input: string) {
@@ -1677,6 +1916,18 @@ function isDiagnosticBridgeItem(item: SearchItem) {
   );
 }
 
+function isUnavailableBridgeDiagnostic(item: SearchItem) {
+  const haystack = [item.title, item.subtitle || "", item.description || "", ...(item.tags || [])]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /not configured yet|command was not found|install the tool|update the command template|could not start/.test(
+      haystack,
+    )
+  );
+}
+
 function isUsefulBridgeProfileUrl(url?: string) {
   if (!url) {
     return false;
@@ -1840,6 +2091,9 @@ async function callToolBridge(
 
   if (refinedItems.length === 0) {
     const diagnostic = normalizedItems.find((item) => isDiagnosticBridgeItem(item));
+    if (diagnostic && isUnavailableBridgeDiagnostic(diagnostic)) {
+      return null;
+    }
     if (diagnostic?.description) {
       throw new Error(`${config.name}: ${diagnostic.description}`);
     }
@@ -2970,12 +3224,8 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
     /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i,
   );
   const h1 = extractMatch(html, /<h1[^>]*>([^<]+)<\/h1>/i);
-  const emails = uniqueValues(
-    extractMatches(html, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi),
-  ).slice(0, 4);
-  const phones = uniqueValues(
-    extractMatches(html, /(\+?\d[\d().\s-]{7,}\d)/g),
-  ).slice(0, 4);
+  const emails = extractEmailCandidates(html).slice(0, 4);
+  const phones = extractPhoneCandidates(html).slice(0, 4);
   const socials = uniqueValues(
     extractMatches(html, /href=["'](https?:\/\/[^"']+)["']/gi).filter((link) =>
       /(linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|t\.me|github\.com)/i.test(
@@ -3005,6 +3255,7 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
       id: `seo-${domain}`,
       source: "Website Metadata",
       type: "seo-snapshot",
+      entityType: locale === "ru" ? "Домен / сайт" : "Domain / Website",
       title: title || finalUrl,
       subtitle: finalUrl,
       description: description || dictionary.searchResults.itemText.noMetaDescription,
@@ -3056,6 +3307,600 @@ async function searchWebsiteMetadata(domain: string, locale: Locale): Promise<Se
   ];
 }
 
+async function searchPublicContactSignals(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const siteDocument = await fetchSiteDocument(domain);
+
+  if (!siteDocument) {
+    return [];
+  }
+
+  const { finalUrl, html } = siteDocument;
+  const priorityLinks = extractSiteLinkCandidates(html, finalUrl).filter((candidate) =>
+    candidate.kind === "contact" ||
+    candidate.kind === "about" ||
+    candidate.kind === "team" ||
+    candidate.kind === "security",
+  );
+
+  const crawledPages = await Promise.allSettled(
+    priorityLinks.slice(0, 6).map(async (candidate) => {
+      const pageHtml = await fetchText(candidate.url);
+      return {
+        ...candidate,
+        html: pageHtml,
+        text: stripHtml(pageHtml).slice(0, 12000),
+      };
+    }),
+  );
+
+  const pages = [
+    {
+      url: finalUrl,
+      kind: "about" as const,
+      html,
+      text: stripHtml(html).slice(0, 12000),
+    },
+    ...crawledPages.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])),
+  ];
+
+  const emails = uniqueValues(pages.flatMap((page) => extractEmailCandidates(page.text))).slice(0, 8);
+
+  const phones = uniqueValues(pages.flatMap((page) => extractPhoneCandidates(page.text))).slice(0, 8);
+
+  const addresses = uniqueValues(
+    pages.flatMap((page) => extractAddressCandidates(page.text)),
+  ).slice(0, 6);
+
+  const jsonLdAddresses = uniqueValues(
+    pages
+      .flatMap((page) => extractJsonLdObjects(page.html))
+      .map((node) => readJsonLdText(node, "address"))
+      .filter(Boolean),
+  ).slice(0, 4);
+
+  const legalIds = pages.reduce(
+    (accumulator, page) => {
+      const current = extractLegalIdentifiers(page.text);
+      accumulator.companyNumbers.push(...current.companyNumbers);
+      accumulator.vatNumbers.push(...current.vatNumbers);
+      accumulator.leis.push(...current.leis);
+      return accumulator;
+    },
+    {
+      companyNumbers: [] as string[],
+      vatNumbers: [] as string[],
+      leis: [] as string[],
+    },
+  );
+
+  const companyNumbers = uniqueValues(legalIds.companyNumbers).slice(0, 6);
+  const vatNumbers = uniqueValues(legalIds.vatNumbers).slice(0, 6);
+  const leis = uniqueValues(legalIds.leis).slice(0, 4);
+  const socialProfiles = uniqueValues(
+    pages.flatMap((page) => extractSocialProfiles(page.html, page.url).map((profile) => `${profile.platform}|${profile.url}`)),
+  )
+    .map((entry) => {
+      const [platform, url] = entry.split("|");
+      return { platform, url };
+    })
+    .slice(0, 10);
+
+  if (
+    emails.length === 0 &&
+    phones.length === 0 &&
+    addresses.length === 0 &&
+    jsonLdAddresses.length === 0 &&
+    companyNumbers.length === 0 &&
+    vatNumbers.length === 0 &&
+    leis.length === 0 &&
+    socialProfiles.length === 0
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      id: `site-contacts-${domain}`,
+      source: "Public Site Contacts",
+      type: "contact-legal-summary",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: domain,
+      subtitle:
+        locale === "ru"
+          ? "Публичные контакты, профили и юрмаркеры"
+          : "Public contacts, profiles, and legal markers",
+      description:
+        locale === "ru"
+          ? "Сводка по открытым контактам, соцпрофилям, адресам и юридическим идентификаторам, найденным на самом сайте."
+          : "Summary of public contacts, social profiles, addresses, and legal identifiers found directly on the site.",
+      url: finalUrl,
+      tags: ["contacts", "profiles", "legal", "site-evidence"],
+      dataTypes:
+        locale === "ru"
+          ? ["Контакты", "Соцпрофили", "Юридические данные", "Адреса"]
+          : ["Contacts", "Social Profiles", "Legal Data", "Addresses"],
+      details: [
+        {
+          label: locale === "ru" ? "Email" : "Emails",
+          value: emails.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Телефоны" : "Phones",
+          value: phones.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Адреса" : "Addresses",
+          value: uniqueValues([...jsonLdAddresses, ...addresses]).join(" | ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Номера компаний" : "Company numbers",
+          value: companyNumbers.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "VAT / Tax IDs" : "VAT / Tax IDs",
+          value: vatNumbers.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "LEI" : "LEI",
+          value: leis.join(", ") || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Соцпрофили" : "Social profiles",
+          value:
+            socialProfiles
+              .slice(0, 4)
+              .map((profile) => `${profile.platform}: ${profile.url}`)
+              .join(" | ") || dictionary.common.notFound,
+        },
+      ],
+      verificationStatus: "verified",
+      confidence: "high",
+      matchKind: "direct",
+      verificationNote:
+        locale === "ru"
+          ? "Контакты и профили извлечены непосредственно из самого сайта и его приоритетных страниц."
+          : "Contacts and profiles were extracted directly from the site and its priority pages.",
+      matchNote:
+        locale === "ru"
+          ? "Это прямой site-level evidence layer."
+          : "This is direct site-level evidence.",
+    },
+    ...emails.slice(0, 4).map((email, index) => ({
+      id: `site-contact-email-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "contact-email",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: email,
+      subtitle: domain,
+      description:
+        locale === "ru"
+          ? "Публичный email, найденный на сайте."
+          : "Public email found on the site.",
+      tags: ["contact", "email", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Контакты", "Email"] : ["Contacts", "Email"],
+    })),
+    ...phones.slice(0, 4).map((phone, index) => ({
+      id: `site-contact-phone-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "contact-phone",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: phone,
+      subtitle: domain,
+      description:
+        locale === "ru"
+          ? "Публичный телефон, найденный на сайте."
+          : "Public phone number found on the site.",
+      tags: ["contact", "phone", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Контакты", "Телефон"] : ["Contacts", "Phone"],
+    })),
+    ...uniqueValues([...jsonLdAddresses, ...addresses]).slice(0, 3).map((address, index) => ({
+      id: `site-contact-address-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "contact-address",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: locale === "ru" ? `Адрес ${index + 1}` : `Address ${index + 1}`,
+      subtitle: domain,
+      description: address,
+      tags: ["contact", "address", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Контакты", "Адрес"] : ["Contacts", "Address"],
+    })),
+    ...socialProfiles.slice(0, 6).map((profile, index) => ({
+      id: `site-social-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "social-profile",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: profile.platform,
+      subtitle: profile.url,
+      description:
+        locale === "ru"
+          ? "Публичный внешний профиль, на который сам сайт ссылается напрямую."
+          : "Public external profile linked directly by the site.",
+      url: profile.url,
+      tags: ["profile", "social", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Соцпрофили", "Публичный профиль"] : ["Social Profiles", "Public Profile"],
+    })),
+    ...companyNumbers.slice(0, 3).map((value, index) => ({
+      id: `site-legal-company-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "company-number",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: value,
+      subtitle: locale === "ru" ? "Номер компании" : "Company number",
+      description:
+        locale === "ru"
+          ? "Юридический идентификатор, найденный на сайте."
+          : "Legal identifier found on the site.",
+      tags: ["legal", "company-number", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Юридические данные", "Номер компании"] : ["Legal Data", "Company Number"],
+    })),
+    ...vatNumbers.slice(0, 3).map((value, index) => ({
+      id: `site-legal-vat-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "vat-number",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: value,
+      subtitle: locale === "ru" ? "VAT / Tax ID" : "VAT / Tax ID",
+      description:
+        locale === "ru"
+          ? "Налоговый идентификатор, найденный на сайте."
+          : "Tax identifier found on the site.",
+      tags: ["legal", "vat", "tax-id", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Юридические данные", "Tax ID"] : ["Legal Data", "Tax ID"],
+    })),
+    ...leis.slice(0, 2).map((value, index) => ({
+      id: `site-legal-lei-${domain}-${index}`,
+      source: "Public Site Contacts",
+      type: "lei",
+      entityType: locale === "ru" ? "Контакты / право" : "Contacts / Legal",
+      title: value,
+      subtitle: "LEI",
+      description:
+        locale === "ru"
+          ? "LEI, найденный на сайте."
+          : "LEI found on the site.",
+      tags: ["legal", "lei", "site-evidence"],
+      dataTypes: locale === "ru" ? ["Юридические данные", "LEI"] : ["Legal Data", "LEI"],
+    })),
+  ];
+}
+
+async function searchTechnologySignals(domain: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const [siteDocument, meta] = await Promise.all([
+    fetchSiteDocument(domain),
+    fetchSiteResponseMeta(domain),
+  ]);
+
+  if (!siteDocument || !meta) {
+    return [];
+  }
+
+  const detections = detectTechnologySignals(siteDocument.html, meta.headers);
+  if (detections.length === 0) {
+    return [];
+  }
+
+  const categories = uniqueValues(detections.map((item) => item.category));
+
+  return [
+    {
+      id: `technology-${domain}`,
+      source: "Technology Signals",
+      type: "technology-summary",
+      entityType: locale === "ru" ? "Технологии" : "Technology",
+      title: domain,
+      subtitle:
+        locale === "ru"
+          ? "Фреймворки, аналитика и support-виджеты"
+          : "Frameworks, analytics, and support widgets",
+      description:
+        locale === "ru"
+          ? "Технологические сигналы, найденные в HTML и HTTP-заголовках сайта."
+          : "Technology signals found in the site's HTML and HTTP headers.",
+      url: siteDocument.finalUrl,
+      tags: ["technology", "framework", "analytics", "site-evidence"],
+      dataTypes:
+        locale === "ru"
+          ? ["Технологии", "Фреймворки", "Аналитика", "Инфраструктура"]
+          : ["Technology", "Frameworks", "Analytics", "Infrastructure"],
+      details: [
+        {
+          label: locale === "ru" ? "Найдено технологий" : "Signals detected",
+          value: String(detections.length),
+        },
+        {
+          label: locale === "ru" ? "Категории" : "Categories",
+          value: categories.join(", "),
+        },
+        {
+          label: locale === "ru" ? "Server" : "Server",
+          value: meta.headers.get("server") || dictionary.common.notDeclared,
+        },
+        {
+          label: locale === "ru" ? "X-Powered-By" : "X-Powered-By",
+          value: meta.headers.get("x-powered-by") || dictionary.common.notDeclared,
+        },
+      ],
+      verificationStatus: "verified",
+      confidence: "high",
+      matchKind: "direct",
+      verificationNote:
+        locale === "ru"
+          ? "Технологии извлечены непосредственно из HTML и HTTP-заголовков сайта."
+          : "Technologies were extracted directly from the site's HTML and HTTP headers.",
+      matchNote:
+        locale === "ru"
+          ? "Прямой технический профиль сайта."
+          : "Direct technical profiling of the site.",
+    },
+    ...detections.slice(0, 8).map((detection, index) => ({
+      id: `technology-${domain}-${index}`,
+      source: "Technology Signals",
+      type: "technology-hit",
+      entityType: locale === "ru" ? "Технологии" : "Technology",
+      title: detection.label,
+      subtitle: detection.category,
+      description:
+        locale === "ru"
+          ? "Технологический сигнал найден в публичном ответе сайта."
+          : "Technology signal found in the public site response.",
+      url: siteDocument.finalUrl,
+      tags: ["technology", detection.category.toLowerCase()],
+      dataTypes:
+        locale === "ru"
+          ? ["Технологии", detection.category]
+          : ["Technology", detection.category],
+    })),
+  ];
+}
+
+async function searchIpIntelligence(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const ip = safeIpFromQuery(query);
+
+  if (!ip) {
+    return [];
+  }
+
+  const [rdapData, networkInfo] = await Promise.all([
+    fetchJson<{
+      handle?: string;
+      name?: string;
+      startAddress?: string;
+      endAddress?: string;
+      country?: string;
+      type?: string;
+      entities?: Array<{
+        roles?: string[];
+        vcardArray?: [string, Array<[string, unknown, string, string]>];
+      }>;
+    }>(`https://rdap.org/ip/${encodeURIComponent(ip)}`).catch(() => null),
+    fetchJson<{
+      data?: {
+        asns?: string[];
+        prefix?: string;
+      };
+    }>(`https://stat.ripe.net/data/network-info/data.json?resource=${encodeURIComponent(ip)}`).catch(() => null),
+  ]);
+
+  const asn = networkInfo?.data?.asns?.[0];
+  const prefix = networkInfo?.data?.prefix;
+  const asOverview = asn
+    ? await fetchJson<{
+        data?: {
+          holder?: string;
+          resource?: string;
+        };
+      }>(`https://stat.ripe.net/data/as-overview/data.json?resource=${encodeURIComponent(`AS${asn}`)}`).catch(
+        () => null,
+      )
+    : null;
+
+  let ptrValue = "";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) {
+    const reversed = ip.split(".").reverse().join(".");
+    try {
+      const ptrData = await fetchJson<{ Answer?: Array<{ data: string }> }>(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(`${reversed}.in-addr.arpa`)}&type=PTR`,
+        {
+          headers: {
+            Accept: "application/dns-json",
+          },
+        },
+      );
+      ptrValue = uniqueValues((ptrData.Answer || []).map((answer) => answer.data.replace(/\.$/, ""))).join(", ");
+    } catch {
+      ptrValue = "";
+    }
+  }
+
+  if (!rdapData && !prefix && !asn && !ptrValue) {
+    return [];
+  }
+
+  const registrant = rdapData?.entities?.find((entity) => entity.roles?.includes("registrant"));
+  const registrantName = registrant?.vcardArray?.[1]?.find((entry) => entry[0] === "fn")?.[3];
+
+  return [
+    {
+      id: `ip-intel-${ip}`,
+      source: "IP Intelligence",
+      type: "ip-summary",
+      entityType: locale === "ru" ? "IP / сеть" : "IP / Network",
+      title: ip,
+      subtitle:
+        locale === "ru"
+          ? "RDAP, ASN, PTR и сетевой контекст"
+          : "RDAP, ASN, PTR, and network context",
+      description:
+        locale === "ru"
+          ? "Публичный сетевой и регистрационный контекст для IP."
+          : "Public network and registration context for the IP.",
+      url: asn ? `https://stat.ripe.net/AS${asn}` : undefined,
+      tags: ["ip", "asn", "rdap", "network"],
+      dataTypes:
+        locale === "ru"
+          ? ["IP", "ASN", "RDAP", "Сеть"]
+          : ["IP", "ASN", "RDAP", "Network"],
+      details: [
+        {
+          label: locale === "ru" ? "RDAP handle" : "RDAP handle",
+          value: rdapData?.handle || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Сеть / имя" : "Network / name",
+          value: rdapData?.name || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Prefix" : "Prefix",
+          value: prefix || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "ASN" : "ASN",
+          value: asn ? `AS${asn}` : dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "Holder" : "Holder",
+          value: asOverview?.data?.holder || registrantName || dictionary.common.notFound,
+        },
+        {
+          label: locale === "ru" ? "PTR" : "PTR",
+          value: ptrValue || dictionary.common.notFound,
+        },
+      ],
+      verificationStatus: "verified",
+      confidence: "high",
+      matchKind: "direct",
+      verificationNote:
+        locale === "ru"
+          ? "Данные получены напрямую из RDAP, RIPEstat и DNS."
+          : "The data came directly from RDAP, RIPEstat, and DNS.",
+      matchNote:
+        locale === "ru"
+          ? "Прямой IP-level pivot."
+          : "Direct IP-level pivot.",
+    },
+  ];
+}
+
+async function searchUrlscanIpScans(query: string, locale: Locale): Promise<SearchItem[]> {
+  const dictionary = getDictionary(locale);
+  const ip = safeIpFromQuery(query);
+
+  if (!ip) {
+    return [];
+  }
+
+  try {
+    const payload = await fetchJson<{
+      total?: number;
+      results?: Array<{
+        task?: { time?: string };
+        page?: {
+          url?: string;
+          domain?: string;
+          ip?: string;
+          asn?: string;
+          asnname?: string;
+          server?: string;
+          title?: string;
+        };
+      }>;
+    }>(`https://urlscan.io/api/v1/search/?q=${encodeURIComponent(`page.ip:${ip}`)}&size=8`);
+
+    const filtered = Array.from(
+      new Map(
+        (payload.results || [])
+          .filter((result) => result.page?.ip === ip)
+          .map((result) => [normalizeUrlForKey(result.page?.url), result]),
+      ).values(),
+    ).slice(0, 5);
+
+    if (filtered.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        id: `urlscan-ip-${ip}`,
+        source: "urlscan",
+        type: "ip-scan-summary",
+        entityType: locale === "ru" ? "IP / сеть" : "IP / Network",
+        title: ip,
+        subtitle:
+          locale === "ru"
+            ? "Публичные сканы страниц на этом IP"
+            : "Public page scans observed on this IP",
+        description:
+          locale === "ru"
+            ? "Результаты из публичного индекса urlscan для страниц, замеченных на этом IP."
+            : "Results from the public urlscan index for pages observed on this IP.",
+        url: `https://urlscan.io/search/#page.ip:${encodeURIComponent(ip)}`,
+        tags: ["urlscan", "ip", "public scans"],
+        dataTypes:
+          locale === "ru"
+            ? ["IP", "Публичные сканы", "Хостинг"]
+            : ["IP", "Public Scans", "Hosting"],
+        details: [
+          {
+            label: locale === "ru" ? "Найдено сканов" : "Scans found",
+            value: String(payload.total || filtered.length),
+          },
+          {
+            label: locale === "ru" ? "Домены" : "Domains",
+            value:
+              uniqueValues(filtered.map((result) => result.page?.domain || "").filter(Boolean)).join(", ") ||
+              dictionary.common.notFound,
+          },
+        ],
+      },
+      ...filtered.map((result, index) => ({
+        id: `urlscan-ip-${ip}-${index}`,
+        source: "urlscan",
+        type: "ip-scan-hit",
+        entityType: locale === "ru" ? "IP / сеть" : "IP / Network",
+        title: result.page?.title || result.page?.domain || `urlscan result ${index + 1}`,
+        subtitle: result.page?.domain || ip,
+        description:
+          locale === "ru"
+            ? "Публичный scan-result по IP из urlscan."
+            : "Public scan result for the IP from urlscan.",
+        url: result.page?.url,
+        tags: ["urlscan", "ip", "public scans"],
+        dataTypes:
+          locale === "ru"
+            ? ["IP", "Публичные сканы", "Страница"]
+            : ["IP", "Public Scans", "Page"],
+        details: [
+          {
+            label: locale === "ru" ? "URL" : "URL",
+            value: result.page?.url || dictionary.common.notFound,
+          },
+          {
+            label: locale === "ru" ? "ASN" : "ASN",
+            value: result.page?.asn || dictionary.common.notFound,
+          },
+          {
+            label: locale === "ru" ? "ASN name" : "ASN name",
+            value: result.page?.asnname || dictionary.common.notFound,
+          },
+          {
+            label: locale === "ru" ? "Server" : "Server",
+            value: result.page?.server || dictionary.common.notFound,
+          },
+          {
+            label: locale === "ru" ? "Время scan" : "Scan time",
+            value: result.task?.time || dictionary.common.notFound,
+          },
+        ],
+      })),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 async function searchSitePathSignals(domain: string, locale: Locale): Promise<SearchItem[]> {
   const dictionary = getDictionary(locale);
   const siteDocument = await fetchSiteDocument(domain);
@@ -3092,12 +3937,8 @@ async function searchSitePathSignals(domain: string, locale: Locale): Promise<Se
     priorityLinks.slice(0, 6).map(async (candidate) => {
       const pageHtml = await fetchText(candidate.url);
       const title = extractMatch(pageHtml, /<title[^>]*>([^<]+)<\/title>/i);
-      const emails = uniqueValues(
-        extractMatches(pageHtml, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi),
-      ).slice(0, 4);
-      const phones = uniqueValues(
-        extractMatches(pageHtml, /(\+?\d[\d().\s-]{7,}\d)/g),
-      ).slice(0, 4);
+      const emails = extractEmailCandidates(pageHtml).slice(0, 4);
+      const phones = extractPhoneCandidates(pageHtml).slice(0, 4);
       const externalDomains = extractExternalDomains(pageHtml, new URL(finalUrl).hostname);
 
       return {
@@ -3130,6 +3971,7 @@ async function searchSitePathSignals(domain: string, locale: Locale): Promise<Se
       id: `site-discovery-${domain}`,
       source: locale === "ru" ? "Исследование сайта" : "Site Discovery",
       type: "path-intelligence",
+      entityType: locale === "ru" ? "Домен / сайт" : "Domain / Website",
       title: domain,
       subtitle:
         locale === "ru"
@@ -3179,6 +4021,7 @@ async function searchSitePathSignals(domain: string, locale: Locale): Promise<Se
       id: `site-discovery-page-${index}`,
       source: locale === "ru" ? "Исследование сайта" : "Site Discovery",
       type: `${page.kind}-page`,
+      entityType: locale === "ru" ? "Домен / сайт" : "Domain / Website",
       title: page.title || page.text || page.url,
       subtitle: page.url,
       description:
@@ -4668,14 +5511,23 @@ function inferEntityType(item: SearchItem, locale: Locale) {
     .join(" ")
     .toLowerCase();
 
+  if (/(ip intelligence|page\.ip|asn|prefix|rdap handle|ptr|ip-scan)/i.test(haystack)) {
+    return locale === "ru" ? "IP / сеть" : "IP / Network";
+  }
+  if (/(domain|dns|rdap|certificate|subdomain|security\.txt|robots|sitemap|headers|json-ld|structured data)/i.test(haystack)) {
+    return locale === "ru" ? "Домен / сайт" : "Domain / Website";
+  }
+  if (/(contact|address|vat|tax id|company number|lei|social profile|public site contacts)/i.test(haystack)) {
+    return locale === "ru" ? "Контакты / право" : "Contacts / Legal";
+  }
+  if (/(technology|framework|analytics|support widget|cms)/i.test(haystack)) {
+    return locale === "ru" ? "Технологии" : "Technology";
+  }
   if (/(email|gravatar|mailbox|local part)/i.test(haystack)) {
     return locale === "ru" ? "Email" : "Email";
   }
   if (/(phone|телефон|calling code|carrier|e164|phoneinfoga)/i.test(haystack)) {
     return locale === "ru" ? "Телефон" : "Phone";
-  }
-  if (/(domain|dns|rdap|certificate|subdomain|security\.txt|robots|sitemap|headers|json-ld|structured data)/i.test(haystack)) {
-    return locale === "ru" ? "Домен / сайт" : "Domain / Website";
   }
   if (/(person|officer|username|profile|name-analysis)/i.test(haystack)) {
     return locale === "ru" ? "Человек / профиль" : "Person / Profile";
@@ -4691,6 +5543,82 @@ function inferEntityType(item: SearchItem, locale: Locale) {
   }
 
   return locale === "ru" ? "Данные" : "Data";
+}
+
+function defaultDataTypes(item: SearchItem, locale: Locale) {
+  const haystack = [
+    item.source,
+    item.type,
+    item.title,
+    item.subtitle || "",
+    item.description || "",
+    ...(item.tags || []),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (/(ip intelligence|page\.ip|asn|prefix|rdap handle|ptr|ip-scan)/i.test(haystack)) {
+    return locale === "ru" ? ["IP", "ASN", "Сеть"] : ["IP", "ASN", "Network"];
+  }
+  if (/(contact|address|vat|tax id|company number|lei|social profile|public site contacts)/i.test(haystack)) {
+    return locale === "ru"
+      ? ["Контакты", "Юридические данные", "Публичный профиль"]
+      : ["Contacts", "Legal Data", "Public Profile"];
+  }
+  if (/(technology|framework|analytics|support widget|cms|infrastructure)/i.test(haystack)) {
+    return locale === "ru"
+      ? ["Технологии", "Аналитика", "Инфраструктура"]
+      : ["Technology", "Analytics", "Infrastructure"];
+  }
+  if (/(email|gravatar|mailbox|local part)/i.test(haystack)) {
+    return locale === "ru" ? ["Email", "Идентичность"] : ["Email", "Identity"];
+  }
+  if (/(phone|телефон|calling code|carrier|e164|phoneinfoga)/i.test(haystack)) {
+    return locale === "ru" ? ["Телефон", "Телеком"] : ["Phone", "Telecom"];
+  }
+  if (/(domain|dns|rdap|certificate|subdomain|security\.txt|robots|sitemap|headers|json-ld|structured data)/i.test(haystack)) {
+    return locale === "ru"
+      ? ["Домен", "Инфраструктура", "Сайт"]
+      : ["Domain", "Infrastructure", "Website"];
+  }
+  if (/(person|officer|username|profile|name-analysis)/i.test(haystack)) {
+    return locale === "ru"
+      ? ["Человек", "Профиль", "Username"]
+      : ["Person", "Profile", "Username"];
+  }
+  if (/(github|repository|repo|octosuite)/i.test(haystack)) {
+    return locale === "ru" ? ["Код", "Репозиторий"] : ["Code", "Repository"];
+  }
+  if (/(company|registry|issuer|lei|ticker|jurisdiction|officer-record|company-record)/i.test(haystack)) {
+    return locale === "ru" ? ["Компания", "Реестр"] : ["Company", "Registry"];
+  }
+  if (/(archive|wayback|capture|wikipedia|wikidata|reference)/i.test(haystack)) {
+    return locale === "ru" ? ["Контекст", "Архив"] : ["Context", "Archive"];
+  }
+
+  return locale === "ru" ? ["Данные"] : ["Data"];
+}
+
+function hasUsefulEvidence(item: SearchItem) {
+  const lowSignalPattern =
+    /(unknown|not found|not declared|not listed|not specified|unavailable|none|не найден|не указано|не объявлено|не указано|отсутствует)/i;
+
+  if (item.url) {
+    return true;
+  }
+
+  const usefulDetails = (item.details || []).filter(
+    (detail) => detail.value && !lowSignalPattern.test(detail.value),
+  );
+  if (usefulDetails.length > 0) {
+    return true;
+  }
+
+  if (item.description && !lowSignalPattern.test(item.description) && item.description.trim().length > 12) {
+    return true;
+  }
+
+  return Boolean(item.title && !lowSignalPattern.test(item.title));
 }
 
 function defaultVerification(
@@ -4726,10 +5654,14 @@ function defaultVerification(
     "http headers",
     "structured data",
     "site ownership",
+    "public site contacts",
     "hosting intelligence",
+    "ip intelligence",
+    "technology signals",
     "crawl surface",
     "crt.sh",
     "security.txt",
+    "urlscan",
     "wikidata",
     "wikipedia",
     "phone intelligence",
@@ -4913,6 +5845,7 @@ function finalizeSearchSections(sections: SearchSection[], locale: Locale): Sear
           const finalized: SearchItem = {
             ...item,
             entityType: item.entityType || inferEntityType(item, locale),
+            dataTypes: item.dataTypes?.length ? item.dataTypes : defaultDataTypes(item, locale),
             confidence: item.confidence || defaults.confidence,
             verificationStatus: item.verificationStatus || defaults.verificationStatus,
             verificationNote: item.verificationNote || defaults.verificationNote,
@@ -4926,6 +5859,10 @@ function finalizeSearchSections(sections: SearchSection[], locale: Locale): Sear
               finalized.confidence === "low" &&
               section.id !== "recommended")
           ) {
+            return null;
+          }
+
+          if (section.id !== "recommended" && !hasUsefulEvidence(finalized)) {
             return null;
           }
 
@@ -4953,6 +5890,7 @@ function recommendedConnectors(kind: QueryKind, locale: Locale) {
       source: humanizeConnectorCategory(connector.category, locale),
       type: connector.status,
       title: connector.name,
+      entityType: locale === "ru" ? "Источник / инструмент" : "Source / Tool",
       subtitle:
         connector.status === "live"
           ? dictionary.sourcesPage.live
@@ -4964,6 +5902,7 @@ function recommendedConnectors(kind: QueryKind, locale: Locale) {
       description: connector.description,
       url: connector.officialUrl,
       tags: connector.queryKinds.map((kind) => humanizeQueryKind(kind, locale)),
+      dataTypes: locale === "ru" ? ["Источник", "Инструмент"] : ["Source", "Tool"],
       details: connector.notes
         ? [{ label: dictionary.searchResults.itemLabels.operatorNote, value: connector.notes }]
         : [],
@@ -5069,6 +6008,22 @@ export async function runUnifiedSearch(
 
     tasks.push(
       (async () => {
+        const items = await searchPublicContactSignals(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Public Site Contacts",
+          locale === "ru" ? "Публичные контакты и профили" : "Public Contacts and Profiles",
+          locale === "ru"
+            ? "Контакты, профили, адреса и юридические маркеры, найденные на сайте."
+            : "Contacts, profiles, addresses, and legal markers found on the site.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
         const items = await searchHostingIntelligence(domain, locale);
         addSection(
           sections,
@@ -5078,6 +6033,22 @@ export async function runUnifiedSearch(
           locale === "ru"
             ? "IP, ASN, префиксы и хостинг-провайдеры для внешнего контура."
             : "IP, ASN, prefixes, and hosting providers for the external surface.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchTechnologySignals(domain, locale);
+        addSection(
+          sections,
+          usedSources,
+          "Technology Signals",
+          locale === "ru" ? "Технологические сигналы" : "Technology Signals",
+          locale === "ru"
+            ? "Фреймворки, аналитика и техстек, извлечённые с сайта."
+            : "Frameworks, analytics, and site-stack signals extracted from the site.",
           items,
         );
       })(),
@@ -5205,6 +6176,40 @@ export async function runUnifiedSearch(
       })(),
     );
   };
+
+  if (inferredType === "ip") {
+    tasks.push(
+      (async () => {
+        const items = await searchIpIntelligence(normalizedQuery, locale);
+        addSection(
+          sections,
+          usedSources,
+          "IP Intelligence",
+          locale === "ru" ? "IP и сетевой контекст" : "IP and Network Context",
+          locale === "ru"
+            ? "RDAP, ASN, PTR и публичный сетевой контекст по IP."
+            : "RDAP, ASN, PTR, and public network context for the IP.",
+          items,
+        );
+      })(),
+    );
+
+    tasks.push(
+      (async () => {
+        const items = await searchUrlscanIpScans(normalizedQuery, locale);
+        addSection(
+          sections,
+          usedSources,
+          "urlscan",
+          locale === "ru" ? "Публичные сканы по IP" : "Public Scans on the IP",
+          locale === "ru"
+            ? "Публичные urlscan-результаты для страниц, замеченных на этом IP."
+            : "Public urlscan results for pages observed on this IP.",
+          items,
+        );
+      })(),
+    );
+  }
 
   if (inferredType === "phone") {
     tasks.push(
@@ -5466,7 +6471,6 @@ export async function runUnifiedSearch(
     inferredType === "company" ||
     inferredType === "keyword" ||
     inferredType === "repository" ||
-    inferredType === "domain" ||
     inferredType === "username"
   ) {
     tasks.push(
@@ -5476,7 +6480,7 @@ export async function runUnifiedSearch(
             ? normalizedQuery.replace(/^https?:\/\/github\.com\//, "")
             : inferredType === "username" || keywordLooksLikeHandle
               ? `user:${canonicalizeUsername(normalizedQuery)}`
-            : normalizedQuery;
+              : normalizedQuery;
         const items = await searchGithubRepos(githubRepoQuery, locale);
         addSection(
           sections,
