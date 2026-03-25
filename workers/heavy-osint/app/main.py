@@ -67,7 +67,7 @@ TOOL_CONFIG: dict[str, dict[str, Any]] = {
         "title": "PhoneInfoga Worker",
         "description": "Structured results from the configured PhoneInfoga command.",
         "command_env": "PHONEINFOGA_COMMAND",
-        "default_command": "",
+        "default_command": "phoneinfoga scan -n {query} -o json",
         "parser": "phoneinfoga",
     },
     "octosuite": {
