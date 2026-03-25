@@ -15,6 +15,91 @@ from pydantic import BaseModel
 app = FastAPI(title="Privat OSINT Heavy Worker", version="0.1.0")
 
 
+INTERACTIVE_SHERLOCK_SITES = [
+    "GitHub",
+    "GitLab",
+    "Reddit",
+    "Keybase",
+    "DEV Community",
+    "Medium",
+    "Telegram",
+    "Patreon",
+    "Docker Hub",
+    "Kaggle",
+    "LeetCode",
+    "Hugging Face",
+    "PyPi",
+    "Replit.com",
+    "TryHackMe",
+    "Codecademy",
+    "Codeberg",
+    "BitBucket",
+    "HackerNews",
+    "npm",
+    "Bluesky",
+    "Twitter",
+    "Instagram",
+    "TikTok",
+    "LinkedIn",
+]
+
+HIGH_SIGNAL_PROFILE_HOST_PRIORITY = [
+    "github.com",
+    "gist.github.com",
+    "gitlab.com",
+    "reddit.com",
+    "keybase.io",
+    "t.me",
+    "huggingface.co",
+    "stackoverflow.com",
+    "linkedin.com",
+    "twitter.com",
+    "x.com",
+    "bsky.app",
+    "instagram.com",
+    "tiktok.com",
+    "dev.to",
+    "medium.com",
+    "hub.docker.com",
+    "kaggle.com",
+    "leetcode.com",
+    "codeberg.org",
+    "bitbucket.org",
+    "npmjs.com",
+    "pypi.org",
+    "replit.com",
+    "tryhackme.com",
+    "codecademy.com",
+    "patreon.com",
+    "developer.apple.com",
+    "discussions.apple.com",
+    "behance.net",
+    "hackerone.com",
+    "hackerearth.com",
+    "hackerrank.com",
+    "codeforces.com",
+    "codewars.com",
+    "chess.com",
+    "crowdin.com",
+    "news.ycombinator.com",
+]
+
+HIGH_SIGNAL_PROFILE_HOSTS = set(HIGH_SIGNAL_PROFILE_HOST_PRIORITY)
+
+PROFILE_PATH_REJECT_PATTERNS = [
+    "/search",
+    "/users/filter",
+    "/explore",
+    "/directory",
+    "/tag/",
+    "/topics/",
+    "/hashtag/",
+    "/discover",
+    "/login",
+    "/signup",
+]
+
+
 class RunRequest(BaseModel):
     query: str
     type: str | None = None
@@ -25,14 +110,14 @@ TOOL_CONFIG: dict[str, dict[str, Any]] = {
         "title": "Sherlock Worker",
         "description": "Structured results from the configured Sherlock command.",
         "command_env": "SHERLOCK_COMMAND",
-        "default_command": "sherlock --print-found --csv --folderoutput {output_dir} {query}",
+        "default_command": "",
         "parser": "sherlock",
     },
     "maigret": {
         "title": "Maigret Worker",
         "description": "Structured results from the configured Maigret command.",
         "command_env": "MAIGRET_COMMAND",
-        "default_command": "maigret {query} --json simple --folderoutput {output_dir}",
+        "default_command": "",
         "parser": "maigret",
     },
     "theharvester": {
@@ -108,6 +193,55 @@ def build_command(template: str, query: str, output_dir: Path) -> list[str]:
     return shlex.split(formatted)
 
 
+def split_csv_env(name: str) -> list[str]:
+    return [entry.strip() for entry in os.getenv(name, "").split(",") if entry.strip()]
+
+
+def build_tool_command(tool: str, template: str, query: str, output_dir: Path) -> list[str]:
+    if tool == "sherlock":
+        timeout = os.getenv("SHERLOCK_TIMEOUT", "8").strip() or "8"
+        sites = split_csv_env("SHERLOCK_SITES") or INTERACTIVE_SHERLOCK_SITES
+        command = [
+            "sherlock",
+            "--print-found",
+            "--csv",
+            "--folderoutput",
+            str(output_dir),
+            "--timeout",
+            timeout,
+        ]
+        for site in sites:
+            command.extend(["--site", site])
+        command.append(query)
+        return command
+
+    if tool == "maigret":
+        top_sites = os.getenv("MAIGRET_TOP_SITES", "80").strip() or "80"
+        timeout = os.getenv("MAIGRET_TIMEOUT", "8").strip() or "8"
+        max_connections = os.getenv("MAIGRET_MAX_CONNECTIONS", "40").strip() or "40"
+        command = [
+            "maigret",
+            query,
+            "--json",
+            "simple",
+            "--folderoutput",
+            str(output_dir),
+            "--top-sites",
+            top_sites,
+            "--timeout",
+            timeout,
+            "--no-recursion",
+            "-n",
+            max_connections,
+        ]
+        tags = split_csv_env("MAIGRET_TAGS")
+        if tags:
+            command.extend(["--tags", ",".join(tags)])
+        return command
+
+    return build_command(template, query, output_dir)
+
+
 def serialize_item(source: str, type_name: str, title: str, subtitle: str = "", description: str = "", url: str | None = None, tags: list[str] | None = None, details: list[dict[str, str]] | None = None) -> dict[str, Any]:
     return {
         "id": f"{source.lower().replace(' ', '-')}-{title.lower()[:60]}",
@@ -132,6 +266,83 @@ def infer_title_from_url(url: str, fallback: str = "Profile") -> str:
     if not hostname:
         return fallback
     return hostname.split(".")[0] or fallback
+
+
+def root_hostname(url: str) -> str:
+    parsed = urlparse(url)
+    hostname = parsed.netloc.lower().split("@")[-1]
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    return hostname
+
+
+def is_high_signal_host(hostname: str) -> bool:
+    return any(
+        hostname == allowed or hostname.endswith(f".{allowed}")
+        for allowed in HIGH_SIGNAL_PROFILE_HOSTS
+    )
+
+
+def is_profile_like_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in {"http", "https"}:
+        return False
+
+    hostname = root_hostname(url)
+    if not hostname or not is_high_signal_host(hostname):
+        return False
+
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+    composite = f"{path}?{query}"
+    if any(pattern in composite for pattern in PROFILE_PATH_REJECT_PATTERNS):
+        return False
+
+    if hostname == "stackoverflow.com" and not path.startswith("/users/"):
+        return False
+    if hostname == "linkedin.com" and not (
+        path.startswith("/in/") or path.startswith("/pub/")
+    ):
+        return False
+    if hostname == "medium.com" and not path.startswith("/@"):
+        return False
+    if hostname == "hub.docker.com" and not path.startswith("/u/"):
+        return False
+    if hostname == "t.me" and path.count("/") != 1:
+        return False
+
+    return True
+
+
+def profile_host_rank(url: str) -> int:
+    hostname = root_hostname(url)
+    for index, allowed in enumerate(HIGH_SIGNAL_PROFILE_HOST_PRIORITY):
+        if hostname == allowed or hostname.endswith(f".{allowed}"):
+            return index
+    return len(HIGH_SIGNAL_PROFILE_HOST_PRIORITY) + 50
+
+
+def dedupe_and_rank_profiles(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        url = str(item.get("url") or item.get("subtitle") or "").strip()
+        if not url or not is_profile_like_url(url):
+            continue
+        key = url.lower()
+        if key not in deduped:
+            deduped[key] = item
+
+    return sorted(
+        deduped.values(),
+        key=lambda item: (
+            profile_host_rank(str(item.get("url") or item.get("subtitle") or "")),
+            str(item.get("title") or "").lower(),
+        ),
+    )[:limit]
 
 
 def collect_files(output_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
@@ -160,8 +371,9 @@ def parse_sherlock(output_dir: Path, stdout: str) -> list[dict[str, Any]]:
                     )
                 )
 
-    if items:
-        return items[:60]
+    ranked_items = dedupe_and_rank_profiles(items, limit=18)
+    if ranked_items:
+        return ranked_items
 
     return parse_generic_lines(stdout, source="Sherlock", tag="username")
 
@@ -223,8 +435,9 @@ def parse_maigret(output_dir: Path, stdout: str) -> list[dict[str, Any]]:
                         )
                     )
 
-    if items:
-        return items[:80]
+    ranked_items = dedupe_and_rank_profiles(items, limit=14)
+    if ranked_items:
+        return ranked_items
 
     return parse_generic_lines(stdout, source="Maigret", tag="username")
 
@@ -462,7 +675,7 @@ def parse_output(tool: str, output_dir: Path, stdout: str) -> list[dict[str, Any
 def run_tool(tool: str, query: str) -> dict[str, Any]:
     config = TOOL_CONFIG[tool]
     template = os.getenv(config["command_env"], config["default_command"]).strip()
-    if not template:
+    if not template and tool not in {"sherlock", "maigret"}:
         return {
             "title": config["title"],
             "description": f"{config['title']} is not configured yet. Set {config['command_env']} on the worker host.",
@@ -471,7 +684,7 @@ def run_tool(tool: str, query: str) -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory(prefix=f"{tool}-") as temp_dir:
         output_dir = Path(temp_dir)
-        command = build_command(template, query, output_dir)
+        command = build_tool_command(tool, template, query, output_dir)
         try:
             completed = subprocess.run(
                 command,

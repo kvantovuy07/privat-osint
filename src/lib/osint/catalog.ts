@@ -194,6 +194,60 @@ type BridgeInvocation = {
   detail?: SearchDetail;
 };
 
+const highSignalBridgeProfileHosts = [
+  "github.com",
+  "gist.github.com",
+  "gitlab.com",
+  "reddit.com",
+  "keybase.io",
+  "t.me",
+  "huggingface.co",
+  "stackoverflow.com",
+  "linkedin.com",
+  "twitter.com",
+  "x.com",
+  "bsky.app",
+  "instagram.com",
+  "tiktok.com",
+  "dev.to",
+  "medium.com",
+  "hub.docker.com",
+  "kaggle.com",
+  "leetcode.com",
+  "codeberg.org",
+  "bitbucket.org",
+  "npmjs.com",
+  "pypi.org",
+  "replit.com",
+  "tryhackme.com",
+  "codecademy.com",
+  "patreon.com",
+  "developer.apple.com",
+  "discussions.apple.com",
+  "behance.net",
+  "hackerone.com",
+  "hackerearth.com",
+  "hackerrank.com",
+  "codeforces.com",
+  "codewars.com",
+  "chess.com",
+  "crowdin.com",
+  "news.ycombinator.com",
+] as const;
+
+const bridgeProfileRejectFragments = [
+  "/search",
+  "/users/filter",
+  "/explore",
+  "/directory",
+  "/tag/",
+  "/topics/",
+  "/hashtag/",
+  "/discover",
+  "/login",
+  "/signup",
+] as const;
+
 const bridgeConfigs: BridgeConfig[] = [
   {
     id: "sherlock-bridge",
@@ -1600,6 +1654,143 @@ function normalizeBridgeItem(
   };
 }
 
+function bridgeProfileHost(url?: string) {
+  if (!url) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(url);
+    return rootHost(parsed.hostname);
+  } catch {
+    return "";
+  }
+}
+
+function isDiagnosticBridgeItem(item: SearchItem) {
+  return (
+    item.type === "timeout" ||
+    item.type === "command-error" ||
+    item.type === "stderr" ||
+    item.type === "raw-line" ||
+    Boolean(item.tags?.some((tag) => /(timeout|worker-error|stderr)/i.test(tag)))
+  );
+}
+
+function isUsefulBridgeProfileUrl(url?: string) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = rootHost(parsed.hostname);
+    const allowed = highSignalBridgeProfileHosts.some(
+      (candidate) => host === candidate || host.endsWith(`.${candidate}`),
+    );
+
+    if (!allowed) {
+      return false;
+    }
+
+    const composite = `${parsed.pathname.toLowerCase()}?${parsed.search.toLowerCase()}`;
+    if (bridgeProfileRejectFragments.some((fragment) => composite.includes(fragment))) {
+      return false;
+    }
+
+    if (host === "stackoverflow.com" && !parsed.pathname.startsWith("/users/")) {
+      return false;
+    }
+
+    if (
+      host === "linkedin.com" &&
+      !(
+        parsed.pathname.startsWith("/in/") ||
+        parsed.pathname.startsWith("/pub/")
+      )
+    ) {
+      return false;
+    }
+
+    if (host === "medium.com" && !parsed.pathname.startsWith("/@")) {
+      return false;
+    }
+
+    if (host === "hub.docker.com" && !parsed.pathname.startsWith("/u/")) {
+      return false;
+    }
+
+    if (host === "t.me" && parsed.pathname.split("/").filter(Boolean).length !== 1) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function bridgeProfileRank(item: SearchItem) {
+  const host = bridgeProfileHost(item.url || item.subtitle);
+  const hostRank = highSignalBridgeProfileHosts.findIndex(
+    (candidate) => host === candidate || host.endsWith(`.${candidate}`),
+  );
+  const verificationRank =
+    item.verificationStatus === "verified"
+      ? 3
+      : item.verificationStatus === "likely"
+        ? 2
+        : 1;
+  const confidenceRank =
+    item.confidence === "high" ? 3 : item.confidence === "medium" ? 2 : 1;
+
+  return {
+    hostRank: hostRank === -1 ? highSignalBridgeProfileHosts.length + 20 : hostRank,
+    verificationRank,
+    confidenceRank,
+  };
+}
+
+function refineBridgeItems(config: BridgeConfig, items: SearchItem[]) {
+  const usableItems = items.filter((item) => !isDiagnosticBridgeItem(item));
+  if (usableItems.length === 0) {
+    return [];
+  }
+
+  if (config.id === "sherlock-bridge" || config.id === "maigret-bridge") {
+    const filtered = usableItems.filter((item) =>
+      isUsefulBridgeProfileUrl(item.url || item.subtitle),
+    );
+
+    return filtered
+      .sort((a, b) => {
+        const left = bridgeProfileRank(a);
+        const right = bridgeProfileRank(b);
+        return (
+          left.hostRank - right.hostRank ||
+          right.verificationRank - left.verificationRank ||
+          right.confidenceRank - left.confidenceRank ||
+          a.title.localeCompare(b.title)
+        );
+      })
+      .slice(0, config.id === "sherlock-bridge" ? 16 : 12);
+  }
+
+  if (config.id === "subfinder-bridge" || config.id === "amass-bridge") {
+    return usableItems.slice(0, 24);
+  }
+
+  if (config.id === "theharvester-bridge") {
+    return usableItems.slice(0, 20);
+  }
+
+  if (config.id === "phoneinfoga-bridge") {
+    return usableItems.slice(0, 10);
+  }
+
+  return usableItems.slice(0, 20);
+}
+
 async function callToolBridge(
   config: BridgeConfig,
   query: string,
@@ -1642,14 +1833,25 @@ async function callToolBridge(
     items?: SearchItem[];
   };
 
+  const normalizedItems = (data.items || []).map((item, index) =>
+    normalizeBridgeItem(config.name, item, index, invocation),
+  );
+  const refinedItems = refineBridgeItems(config, normalizedItems);
+
+  if (refinedItems.length === 0) {
+    const diagnostic = normalizedItems.find((item) => isDiagnosticBridgeItem(item));
+    if (diagnostic?.description) {
+      throw new Error(`${config.name}: ${diagnostic.description}`);
+    }
+    return null;
+  }
+
   return {
     id: config.id,
     title: data.title || config.name,
     description:
       data.description || `Results returned by the configured ${config.name} worker.`,
-    items: (data.items || []).map((item, index) =>
-      normalizeBridgeItem(config.name, item, index, invocation),
-    ),
+    items: refinedItems,
   };
 }
 
@@ -1856,7 +2058,7 @@ function mergeBridgeSections(
     }
   }
 
-  const mergedItems = Array.from(items.values()).slice(0, 40);
+  const mergedItems = refineBridgeItems(config, Array.from(items.values()));
   if (mergedItems.length === 0) {
     return null;
   }
@@ -1945,14 +2147,18 @@ async function searchSecCompanies(query: string, locale: Locale): Promise<Search
   });
 
   const normalized = query.trim().toLowerCase();
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
   const matches = Object.values(data)
     .filter((item) => {
       const title = item.title.toLowerCase();
       const ticker = item.ticker.toLowerCase();
+      const directTickerMatch = ticker === normalized;
+      const tokenTickerMatch = tokens.includes(ticker) && normalized.length <= 6;
       return (
         title.includes(normalized) ||
         ticker.includes(normalized) ||
-        normalized.includes(ticker)
+        directTickerMatch ||
+        tokenTickerMatch
       );
     })
     .slice(0, 5);
@@ -4601,13 +4807,14 @@ function finalizeSearchSections(sections: SearchSection[], locale: Locale): Sear
       const deduped = new Map<string, SearchItem>();
 
       for (const item of section.items) {
-        const key = [
-          item.source.toLowerCase(),
-          item.type.toLowerCase(),
-          item.title.trim().toLowerCase(),
-          (item.subtitle || "").trim().toLowerCase(),
-          normalizeUrlForKey(item.url),
-        ].join("|");
+        const normalizedUrl = normalizeUrlForKey(item.url);
+        const key = normalizedUrl
+          ? [item.source.toLowerCase(), normalizedUrl].join("|")
+          : [
+              item.source.toLowerCase(),
+              item.title.trim().toLowerCase(),
+              (item.subtitle || "").trim().toLowerCase(),
+            ].join("|");
 
         const current = deduped.get(key);
         if (!current || scoreSearchItem(item) > scoreSearchItem(current)) {
@@ -4989,7 +5196,7 @@ export async function runUnifiedSearch(
     }
   }
 
-  if (inferredType === "company" || inferredType === "keyword") {
+  if (inferredType === "company" || (inferredType === "keyword" && !keywordLooksLikeHandle)) {
     tasks.push(
       (async () => {
         const items = await searchGleifCompanies(normalizedQuery, locale);
@@ -5019,7 +5226,11 @@ export async function runUnifiedSearch(
     );
   }
 
-  if (inferredType === "company" || inferredType === "person" || inferredType === "keyword") {
+  if (
+    inferredType === "company" ||
+    inferredType === "person" ||
+    (inferredType === "keyword" && !keywordLooksLikeHandle)
+  ) {
     if (inferredType === "person") {
       tasks.push(
         (async () => {
@@ -5068,60 +5279,62 @@ export async function runUnifiedSearch(
       })(),
     );
 
-    tasks.push(
-      (async () => {
-        const items = await searchCompaniesHouse(
-          normalizedQuery,
-          inferredType === "person" ? "person" : "company",
-          locale,
-        );
-        addSection(
-          sections,
-          usedSources,
-          "Companies House",
-          locale === "ru" ? "Companies House" : "Companies House",
-          locale === "ru"
-            ? "Официальные корпоративные и officer-записи из реестра Великобритании."
-            : "Official UK registry company and officer records.",
-          items,
-        );
-      })(),
-    );
-
-    tasks.push(
-      (async () => {
-        const items = await searchOpenCorporates(
-          normalizedQuery,
-          inferredType === "person" ? "person" : "company",
-          locale,
-        );
-        addSection(
-          sections,
-          usedSources,
-          "OpenCorporates",
-          locale === "ru" ? "OpenCorporates" : "OpenCorporates",
-          locale === "ru"
-            ? "Глобальные корпоративные и officer-совпадения из OpenCorporates."
-            : "Global company and officer matches from OpenCorporates.",
-          items,
-        );
-      })(),
-    );
-
-    if (!process.env.COMPANIES_HOUSE_API_KEY) {
-      warnings.push(
-        locale === "ru"
-          ? "Companies House подключён как официальный keyed-коннектор. Добавьте COMPANIES_HOUSE_API_KEY, чтобы включить живой поиск."
-          : "Companies House is wired as an official keyed connector. Add COMPANIES_HOUSE_API_KEY to activate live search.",
+    if (inferredType !== "keyword" || !keywordLooksLikeHandle) {
+      tasks.push(
+        (async () => {
+          const items = await searchCompaniesHouse(
+            normalizedQuery,
+            inferredType === "person" ? "person" : "company",
+            locale,
+          );
+          addSection(
+            sections,
+            usedSources,
+            "Companies House",
+            locale === "ru" ? "Companies House" : "Companies House",
+            locale === "ru"
+              ? "Официальные корпоративные и officer-записи из реестра Великобритании."
+              : "Official UK registry company and officer records.",
+            items,
+          );
+        })(),
       );
-    }
 
-    if (!process.env.OPENCORPORATES_API_TOKEN) {
-      warnings.push(
-        locale === "ru"
-          ? "OpenCorporates подключён как keyed-коннектор. Добавьте OPENCORPORATES_API_TOKEN, чтобы включить живой поиск."
-          : "OpenCorporates is wired as a keyed connector. Add OPENCORPORATES_API_TOKEN to activate live search.",
+      tasks.push(
+        (async () => {
+          const items = await searchOpenCorporates(
+            normalizedQuery,
+            inferredType === "person" ? "person" : "company",
+            locale,
+          );
+          addSection(
+            sections,
+            usedSources,
+            "OpenCorporates",
+            locale === "ru" ? "OpenCorporates" : "OpenCorporates",
+            locale === "ru"
+              ? "Глобальные корпоративные и officer-совпадения из OpenCorporates."
+              : "Global company and officer matches from OpenCorporates.",
+            items,
+          );
+        })(),
       );
+
+      if (!process.env.COMPANIES_HOUSE_API_KEY) {
+        warnings.push(
+          locale === "ru"
+            ? "Companies House подключён как официальный keyed-коннектор. Добавьте COMPANIES_HOUSE_API_KEY, чтобы включить живой поиск."
+            : "Companies House is wired as an official keyed connector. Add COMPANIES_HOUSE_API_KEY to activate live search.",
+        );
+      }
+
+      if (!process.env.OPENCORPORATES_API_TOKEN) {
+        warnings.push(
+          locale === "ru"
+            ? "OpenCorporates подключён как keyed-коннектор. Добавьте OPENCORPORATES_API_TOKEN, чтобы включить живой поиск."
+            : "OpenCorporates is wired as a keyed connector. Add OPENCORPORATES_API_TOKEN to activate live search.",
+        );
+      }
     }
   }
 
@@ -5175,6 +5388,8 @@ export async function runUnifiedSearch(
         const githubRepoQuery =
           inferredType === "repository"
             ? normalizedQuery.replace(/^https?:\/\/github\.com\//, "")
+            : inferredType === "username" || keywordLooksLikeHandle
+              ? `user:${canonicalizeUsername(normalizedQuery)}`
             : normalizedQuery;
         const items = await searchGithubRepos(githubRepoQuery, locale);
         addSection(
@@ -5349,7 +5564,7 @@ export async function runUnifiedSearch(
       { label: dictionary.searchResults.summary.resultCards, value: String(totalResults) },
       { label: dictionary.searchResults.summary.signalSections, value: String(signalCount) },
     ],
-    warnings,
+    warnings: uniqueValues(warnings),
     sections: finalizedSections,
     usedSources: liveSourcesUsed,
     performedAt: new Date().toISOString(),
